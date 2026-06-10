@@ -457,5 +457,10 @@ Start Recording
 <audio id="review-audio" style="display:none;"></audio>
 <audio id="detail-audio" style="display:none;"></audio>
 <script src="script.js"></script>
+<script>
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("/Decibel/sw.js");
+  }
+</script>
 </body>
 </html>
