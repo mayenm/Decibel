@@ -612,3 +612,39 @@ input:checked + .ios-switch-slider:before { transform: translateX(20px); }
 .settings-btn:active { transform: scale(0.98); }
 .settings-btn.primary { background: var(--system-blue); color: #fff; }
 .settings-btn.secondary { background: var(--bg-secondary); color: var(--text-primary); }
+/* ─── Auth Button Updates ─────────────────────────────────────── */
+
+/* Guest button - dark style */
+.auth-btn-apple {
+  background: #1C1C1E;
+  color: #FFFFFF;
+  border: 1px solid rgba(255,255,255,0.15);
+}
+
+.auth-btn-apple svg {
+  color: #FFFFFF;
+  fill: #FFFFFF;
+}
+
+.auth-btn-apple:active {
+  background: #2C2C2E;
+}
+
+/* Google button - white style */
+.auth-btn-google {
+  background: #FFFFFF;
+  color: #1C1C1E;
+  border: 1px solid rgba(0,0,0,0.12);
+}
+
+/* Divider between buttons */
+.auth-buttons {
+  gap: 14px;
+}
+
+/* Auth button icons size fix */
+.auth-btn .auth-icon {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}

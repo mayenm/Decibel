@@ -257,7 +257,7 @@ async function saveState() {
     await saveNoteToDB(note);
   }
 }
-}
+
 async function loadState() {
   try {
     await openDB();
@@ -280,19 +280,27 @@ function triggerGoogleSignIn() {
 
 function handleGoogleCredential(response) {
   const payload = JSON.parse(atob(response.credential.split('.')[1]));
-  const nameParts = (payload.name || 'User').split(' ');
+  
+  // Get name from Google account, fall back to email prefix if no name
+  const fullName = payload.name || payload.email.split('@')[0];
+  const nameParts = fullName.split(' ');
+  
+  // Capitalise first letter of email-derived name
+  const firstName = nameParts[0].charAt(0).toUpperCase() + nameParts[0].slice(1);
+  const lastName = nameParts.slice(1).join(' ') || '';
+
   state.isUserSignedIn = true;
   state.userProfile = {
-    firstName: nameParts[0] || 'User',
-    lastName: nameParts.slice(1).join(' ') || '',
+    firstName: firstName,
+    lastName: lastName,
     email: payload.email || ''
   };
-  state.userName = state.userProfile.firstName;
+  state.userName = firstName;
   state.hasOnboarded = true;
   saveState();
   renderProfileTrigger();
   showScreen('screen-home');
-  showToast('Signed in with Google');
+  showToast(`Welcome, ${firstName}!`);
   haptic([10, 50, 10]);
 }
 function applyTheme(theme, instant = false) {
@@ -627,19 +635,21 @@ input.value = '';
 setTimeout(() => input.focus(), 100);
 }
 function saveName() {
-const name = document.getElementById('name-input').value.trim();
-if (name) {
-state.userName = name;
-state.userProfile.firstName = name;
-state.isUserSignedIn = true;
-state.userProfile.email = 'user@example.com';
-}
-state.hasOnboarded = true;
-saveState();
-document.getElementById('name-modal').classList.remove('active');
-renderProfileTrigger();
-showScreen('screen-home');
-haptic([10, 50, 10]);
+  const raw = document.getElementById('name-input').value.trim();
+  // Capitalise first letter
+  const name = raw.charAt(0).toUpperCase() + raw.slice(1);
+  if (name) {
+    state.userName = name;
+    state.userProfile.firstName = name;
+    state.isUserSignedIn = true;
+    state.userProfile.email = '';
+  }
+  state.hasOnboarded = true;
+  saveState();
+  document.getElementById('name-modal').classList.remove('active');
+  renderProfileTrigger();
+  showScreen('screen-home');
+  haptic([10, 50, 10]);
 }
 const QUESTIONS = [
 "What are you pondering?",
@@ -1824,14 +1834,8 @@ state.audioReactor.destroy();
 state.audioReactor = null;
 }
 if (state.silenceTimer) clearTimeout(state.silenceTimer);
-if (state.recognition && state.speechSupported) {
-  updateLiveTranscript();
-  try {
-    state.recognition.start();
-  } catch(e) {}
-} else if (!state.speechSupported) {
-  document.getElementById('rec-live-text').innerHTML = 
-    '<span class="rec-listening">Transcription not supported on this browser. Audio is still being recorded.</span>';
+if (state.recognition) {
+  try { state.recognition.stop(); } catch(e) {}
 }
 if (state.mediaRecorder && state.mediaRecorder.state !== 'inactive') state.mediaRecorder.stop();
 if (state.micStream) state.micStream.getTracks().forEach(t => t.stop());
