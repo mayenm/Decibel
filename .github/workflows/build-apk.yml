@@ -93,13 +93,14 @@ jobs:
           EOF
 
       # Use Bubblewrap's native CI environment variables to securely pass the passwords.
-      # This prevents the CLI from trying to read from the non-existent interactive TTY.
-      # We only pipe 'n\n' to answer the "regenerate project?" prompt.
+      # We pipe 'y\n' to answer "Yes" to the "regenerate project?" prompt.
+      # This forces Bubblewrap to generate the Android project files (like gradlew) 
+      # from the twa-manifest.json before attempting to build.
       - name: Build APK
         env:
           BUBBLEWRAP_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           BUBBLEWRAP_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: printf 'n\n' | bubblewrap build
+        run: printf 'y\n' | bubblewrap build
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
