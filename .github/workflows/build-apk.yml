@@ -92,15 +92,14 @@ jobs:
           }
           EOF
 
-      # bubblewrap build now prompts for exactly 3 things in order:
-      #   1. Regenerate project? (Y/n) -> we answer 'n'
-      #   2. Password for the Key Store:
-      #   3. Password for the Key:
+      # Use Bubblewrap's native CI environment variables to securely pass the passwords.
+      # This prevents the CLI from trying to read from the non-existent interactive TTY.
+      # We only pipe 'n\n' to answer the "regenerate project?" prompt.
       - name: Build APK
         env:
-          KS_PASS: ${{ secrets.KEYSTORE_PASSWORD }}
-          KEY_PASS: ${{ secrets.KEY_PASSWORD }}
-        run: printf 'n\n%s\n%s\n' "$KS_PASS" "$KEY_PASS" | bubblewrap build
+          BUBBLEWRAP_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          BUBBLEWRAP_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: printf 'n\n' | bubblewrap build
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
