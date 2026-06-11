@@ -85,7 +85,7 @@ jobs:
               "path": "./decibel.keystore",
               "alias": "${{ secrets.KEY_ALIAS }}"
             },
-            "minSdkVersion": 19,
+            "minSdkVersion": 21,
             "rotationEnabled": true,
             "fullScopeUrl": "https://mayenm.github.io/Decibel/",
             "locationDelegation": { "enabled": false }
