@@ -56,7 +56,6 @@ jobs:
         run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > decibel.keystore
 
       # Write twa-manifest.json directly — this REPLACES "bubblewrap init"
-      # and eliminates the interactive setup prompts.
       - name: Write twa-manifest.json
         run: |
           cat > twa-manifest.json << 'EOF'
@@ -93,14 +92,15 @@ jobs:
           }
           EOF
 
-      # bubblewrap build prompts for two passwords in order:
-      #   1. keystore password   2. key password
-      # printf feeds them as two lines to stdin so the build is fully non-interactive.
+      # bubblewrap build now prompts for exactly 3 things in order:
+      #   1. Regenerate project? (Y/n) -> we answer 'n'
+      #   2. Password for the Key Store:
+      #   3. Password for the Key:
       - name: Build APK
         env:
           KS_PASS: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_PASS: ${{ secrets.KEY_PASSWORD }}
-        run: printf '%s\n%s\n' "$KS_PASS" "$KEY_PASS" | bubblewrap build
+        run: printf 'n\n%s\n%s\n' "$KS_PASS" "$KEY_PASS" | bubblewrap build
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
