@@ -1599,7 +1599,7 @@ state.recognition.onend = () => {
                 if (state.isRecording && !state.isPaused) {
                     state.recognition.start();
                 }
-            }, 50);
+            }, 150);
         } catch(e) {
             console.log('Restart error:', e);
         }
@@ -3528,6 +3528,15 @@ document.addEventListener('contextmenu', (e) => {
         return;
     }
     // Block native menu everywhere else so your custom JS logic can take over
+    e.preventDefault();
+});
+// Prevent Android's native text selection magnifier
+document.addEventListener('selectstart', (e) => {
+    const target = e.target;
+    // Allow selection ONLY inside inputs and editable text areas
+    if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+        return;
+    }
     e.preventDefault();
 });
 }
