@@ -120,7 +120,6 @@ async function loadSettingsFromDB() {
 }
 
 const APP_VERSION = '1.0.0';
-const STORAGE_KEY = 'voiceNoteApp_v3';
 const HELP_URL = 'https://discord.gg/vhytdFAwe';
 const PRIVACY_URL = 'https://example.com/privacy';
 const TERMS_URL = 'https://example.com/terms';
@@ -227,13 +226,26 @@ navigator.vibrate(pattern);
 }
 }
 function getStorageSize() {
-let size = 0;
-for (let key in localStorage) {
-if (localStorage.hasOwnProperty(key)) {
-size += localStorage[key].length + key.length;
-}
-}
-return size;
+  // Estimate storage used by notes in memory (text content only; audio blobs are in IndexedDB)
+  let size = 0;
+  state.notes.forEach(note => {
+    const text = JSON.stringify({
+      id: note.id,
+      title: note.title,
+      originalTranscription: note.originalTranscription,
+      editedBody: note.editedBody,
+      tags: note.tags,
+      createdAt: note.createdAt,
+      duration: note.duration,
+      type: note.type,
+      waveformData: note.waveformData,
+      wordTimings: note.wordTimings
+    });
+    size += new Blob([text]).size;
+    // Estimate audio blob size if present
+    if (note.audioBlob) size += note.audioBlob.size || 0;
+  });
+  return size;
 }
 function formatBytes(bytes) {
 if (bytes === 0) return '0 Bytes';
@@ -275,7 +287,16 @@ async function loadState() {
   }
 }
 function triggerGoogleSignIn() {
-  google.accounts.id.prompt();
+  try {
+    if (typeof google === 'undefined' || !google.accounts) {
+      showToast('Google Sign In is loading, please try again');
+      return;
+    }
+    google.accounts.id.prompt();
+  } catch(e) {
+    showToast('Google Sign In unavailable');
+    console.error('Google Sign In error:', e);
+  }
 }
 
 function handleGoogleCredential(response) {
@@ -441,26 +462,7 @@ showToast('Profile screen coming soon');
 openHelp();
 }
 }
-function handleAuth(provider) {
-const btn = document.querySelector(`.auth-btn-${provider}`);
-btn.classList.add('loading');
-setTimeout(() => {
-btn.classList.remove('loading');
-state.isUserSignedIn = true;
-state.userProfile = {
-firstName: 'Alex',
-lastName: 'Morgan',
-email: provider === 'apple' ? 'alex@icloud.com' : 'alex@gmail.com'
-};
-state.userName = state.userProfile.firstName;
-state.hasOnboarded = true;
-saveState();
-renderProfileTrigger();
-showScreen('screen-home');
-showToast(`Signed in with ${provider === 'apple' ? 'Apple' : 'Google'}`);
-haptic([10, 50, 10]);
-}, 1500);
-}
+
 function handleLogout() {
 closeProfileMenu();
 showModal(
@@ -501,7 +503,7 @@ if (state.isUserSignedIn && state.userProfile.firstName) {
 const initials = getInitials(state.userProfile.firstName, state.userProfile.lastName);
 const color = getColorFromName((state.userProfile.firstName || '') + (state.userProfile.lastName || ''));
 avatar.innerHTML = `<div class="profile-avatar-initials" style="background-color: ${color}; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 700;">${initials}</div>`;
-nameEl.textContent = `${state.userProfile.firstName || ''} ${state.userProfile.lastName || ''}`.trim();
+nameEl.textContent = state.userProfile.firstName || '';
 emailEl.textContent = state.userProfile.email || '';
 emailEl.style.display = 'block';
 } else {
@@ -663,7 +665,11 @@ const QUESTIONS = [
 ];
 function renderHome() {
 document.getElementById('home-username').textContent = state.userName;
-document.getElementById('home-question').textContent = QUESTIONS[Math.floor(Math.random() * QUESTIONS.length)];
+const questionEl = document.getElementById('home-question');
+if (!questionEl.dataset.set) {
+  questionEl.textContent = QUESTIONS[Math.floor(Math.random() * QUESTIONS.length)];
+  questionEl.dataset.set = '1';
+}
 document.getElementById('pill-voice').classList.toggle('active', state.currentFilter === 'voice');
 document.getElementById('pill-written').classList.toggle('active', state.currentFilter === 'written');
 const wb = document.getElementById('written-btn');
@@ -978,7 +984,7 @@ document.getElementById('permission-overlay').classList.add('active');
 startRecording();
 }
 }
-function saveWrittenNote() {
+async function saveWrittenNote() {
 const title = document.getElementById('wri-title-input').value.trim();
 const body = document.getElementById('wri-body-input').value.trim();
 if (!title) {
@@ -999,7 +1005,7 @@ tags: [],
 createdAt: new Date().toISOString(),
 duration: null
 });
-saveState();
+await saveState();
 showToast('Note saved');
 haptic([10, 50, 10]);
 goBack();
@@ -1608,7 +1614,6 @@ state.lastSentenceEnd = elapsed;
 }
 };
 }
-}
 function formatTranscriptChunk(rawText, elapsedTime) {
 if (!rawText || !rawText.trim()) return { formatted: '', sentenceEnded: false };
 let text = rawText.trim();
@@ -1825,6 +1830,7 @@ haptic([10, 50, 10]);
 }
 function goBackFromReview() {
 stopReviewAudio();
+const wasRecording = state.isRecording || state.isPaused;
 state.isRecording = false;
 state.isPaused = false;
 clearInterval(state.timerInterval);
@@ -1843,7 +1849,9 @@ if (state.audioContext && state.audioContext.state !== 'closed') state.audioCont
 document.getElementById('rec-silence').classList.remove('active');
 document.getElementById('rec-timer').textContent = '00:00';
 document.getElementById('rec-pause-btn').textContent = 'Pause';
-document.getElementById('rec-live-text').innerHTML = '<span class="rec-listening">Listening...</span>';
+if (wasRecording) {
+  document.getElementById('rec-live-text').innerHTML = '<span class="rec-listening">Listening...</span>';
+}
 state.totalPausedDuration = 0;
 state.pausedAt = null;
 goBack();
@@ -1863,7 +1871,7 @@ haptic([10, 50, 10]);
 goBackFromReview();
 }
 }
-function saveNote() {
+async function saveNote() {
 const title = document.getElementById('rev-title-input').value.trim();
 const body = document.getElementById('rev-textarea').value;
 if (!title) {
@@ -1888,7 +1896,7 @@ createdAt: new Date().toISOString(),
 duration: state.currentReviewDuration,
 wordTimings: state.currentReviewWordTimings || []
 });
-saveState();
+await saveState();
 showToast('Note saved');
 haptic([10, 50, 10]);
 while (state.navStack.length > 1) state.navStack.pop();
@@ -2483,13 +2491,13 @@ state.highlightRafId = null;
 const editable = document.getElementById('det-editable-text');
 if (editable) editable.classList.remove('playing');
 }
-function saveAndGoHome() {
+async function saveAndGoHome() {
 const note = state.notes.find(n => n.id === state.currentNoteId);
 if (note) {
 note.title = document.getElementById('det-title-input').value.trim() || note.title;
 note.editedBody = getRawTextFromDOM(document.getElementById('det-editable-text'));
 stopDetailAudio();
-saveState();
+await saveState();
 } else {
 stopDetailAudio();
 }
@@ -2500,14 +2508,14 @@ pendingDeleteNoteId = state.currentNoteId;
 showModal(
 "Are you sure you want to delete this note?",
 "Delete",
-() => {
+async () => {
 if (!pendingDeleteNoteId) return;
 const note = state.notes.find(n => n.id === pendingDeleteNoteId);
 stopDetailAudio();
 if (note && note.audioFileURL) URL.revokeObjectURL(note.audioFileURL);
 state.notes = state.notes.filter(n => n.id !== pendingDeleteNoteId);
-deleteNoteFromDB(pendingDeleteNoteId);
-saveState();
+await deleteNoteFromDB(pendingDeleteNoteId);
+await saveState();
 showToast('Note deleted');
 haptic([10, 50, 10]);
 goBack();
@@ -2576,21 +2584,21 @@ input.value = '';
 };
 container.appendChild(input);
 }
-function addTag(tag) {
+async function addTag(tag) {
 const note = state.notes.find(n => n.id === state.currentNoteId);
 if (!note) return;
 if (!note.tags) note.tags = [];
 if (!note.tags.includes(tag)) {
 note.tags.push(tag);
-saveState();
+await saveState();
 renderDetailTags();
 }
 }
-function removeTag(tag) {
+async function removeTag(tag) {
 const note = state.notes.find(n => n.id === state.currentNoteId);
 if (!note || !note.tags) return;
 note.tags = note.tags.filter(t => t !== tag);
-saveState();
+await saveState();
 renderDetailTags();
 }
 function exportDatabase() {
@@ -3519,6 +3527,8 @@ isHandlingPopstate = false;
       setTimeout(() => splash.remove(), 600);
     }, 1200);
   }
+
+  // Schedule backup after state is loaded
+  if (state.backupEnabled) scheduleBackup();
 }
-if (state.backupEnabled) scheduleBackup();
 init();
