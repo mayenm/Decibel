@@ -3520,5 +3520,15 @@ isHandlingPopstate = false;
 
   // Schedule backup after state is loaded
   if (state.backupEnabled) scheduleBackup();
+  // Prevent native Android context menu (long-press) globally
+document.addEventListener('contextmenu', (e) => {
+    const target = e.target;
+    // Allow native menu for text inputs and editable text areas
+    if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+        return;
+    }
+    // Block native menu everywhere else so your custom JS logic can take over
+    e.preventDefault();
+});
 }
 init();

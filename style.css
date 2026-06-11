@@ -130,7 +130,22 @@
 --shadow-xl: 0 12px 32px rgba(0,0,0,0.5);
 --shadow-menu: 0px 4px 8px rgba(0,0,0,0.35), 0px 12px 32px rgba(0,0,0,0.55);
 }
-* { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; }
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Re-enable text selection ONLY for inputs and editable areas */
+input, textarea, [contenteditable="true"] {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
 /* 1. THE GLOBAL TRANSITION (Added 'background' shorthand) */
 *:not(canvas):not(.rec-dot):not(.bar):not(.ctx-color-swatch) { 
     transition: background var(--duration-normal) var(--ease-out-expo), 
