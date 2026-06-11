@@ -3,27 +3,83 @@ name: Build APK
 on:
   push:
     branches: [main]
+  workflow_dispatch:          # lets you trigger a build manually from the Actions tab
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
 
-      - name: Setup Node
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Android build tools (Gradle) require Java 17 — this was missing before
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Node 18
         uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: '18'
 
       - name: Install Bubblewrap
         run: npm install -g @bubblewrap/cli
 
-      - name: Build APK
+      # Recreate the keystore from the base64 secret
+      - name: Decode keystore
+        run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > decibel.keystore
+
+      # Write twa-manifest.json directly — this REPLACES "bubblewrap init"
+      # and eliminates every interactive prompt (that is what caused the yyy flood
+      # and the bad packageId).  GitHub Actions expands ${{ }} before the shell
+      # runs the heredoc, so KEY_ALIAS is substituted correctly even inside <<'EOF'.
+      - name: Write twa-manifest.json
         run: |
-          yes | bubblewrap init \
-            --manifest https://mayenm.github.io/Decibel/manifest.json \
-            --package-id com.mayenm.decibel
-          yes | bubblewrap build
+          cat > twa-manifest.json << 'EOF'
+          {
+            "packageId": "com.mayenm.decibel",
+            "host": "mayenm.github.io",
+            "name": "Decibel",
+            "launcherName": "Decibel",
+            "display": "standalone",
+            "orientation": "default",
+            "themeColor": "#000000",
+            "navigationColor": "#000000",
+            "backgroundColor": "#000000",
+            "startUrl": "/Decibel/",
+            "iconUrl": "https://mayenm.github.io/Decibel/icon-512.png",
+            "splashScreenFadeOutDuration": 300,
+            "shortcuts": [],
+            "generatorApp": "bubblewrap-cli",
+            "webManifestUrl": "https://mayenm.github.io/Decibel/manifest.json",
+            "fallbackType": "customtabs",
+            "features": {},
+            "alphaDependencies": { "enabled": false },
+            "enableNotifications": false,
+            "appVersionCode": 1,
+            "appVersion": "1.0.0",
+            "signingKey": {
+              "path": "./decibel.keystore",
+              "alias": "${{ secrets.KEY_ALIAS }}"
+            },
+            "minSdkVersion": 19,
+            "rotationEnabled": true,
+            "fullScopeUrl": "https://mayenm.github.io/Decibel/",
+            "locationDelegation": { "enabled": false }
+          }
+          EOF
+
+      # bubblewrap build prompts for two passwords in order:
+      #   1. keystore password   2. key password
+      # printf feeds them as two lines to stdin so the build is fully non-interactive.
+      - name: Build APK
+        env:
+          KS_PASS: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_PASS: ${{ secrets.KEY_PASSWORD }}
+        run: printf '%s\n%s\n' "$KS_PASS" "$KEY_PASS" | bubblewrap build
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
