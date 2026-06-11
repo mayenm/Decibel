@@ -31,10 +31,18 @@ jobs:
       - name: Install Bubblewrap
         run: npm install -g @bubblewrap/cli
 
-      # Pre-configure Bubblewrap with the runner's JDK and Android SDK paths.
-      # This eliminates the interactive JDK/SDK prompts that cause the exit code 130 crash.
+      # Create the config file directly to bypass ALL interactive CLI prompts.
+      # Running `bubblewrap updateConfig` still triggers the interactive JDK prompt 
+      # in CI environments, which causes the exit code 130 crash.
       - name: Configure Bubblewrap JDK and SDK paths
-        run: bubblewrap updateConfig --jdkPath="$JAVA_HOME" --androidSdkPath="$ANDROID_SDK_ROOT"
+        run: |
+          mkdir -p ~/.bubblewrap
+          cat > ~/.bubblewrap/config.json << EOF
+          {
+            "jdkPath": "$JAVA_HOME",
+            "androidSdkPath": "$ANDROID_SDK_ROOT"
+          }
+          EOF
 
       # Recreate the keystore from the base64 secret
       - name: Decode keystore
