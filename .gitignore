@@ -2,3 +2,4 @@
 *.jks
 decibel.txt
 client_secret*.json
+decibel.keystore
