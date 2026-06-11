@@ -55,6 +55,17 @@ jobs:
       - name: Decode keystore
         run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > decibel.keystore
 
+      # TEMPORARY STEP: Prints the SHA256 fingerprint needed for assetlinks.json
+      # You can delete this step after you have copied the fingerprint.
+      - name: Print SHA256 Fingerprint
+        env:
+          BUBBLEWRAP_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        run: |
+          echo "--------------------------------------------------"
+          echo "COPY THE SHA256 STRING BELOW:"
+          keytool -list -v -keystore decibel.keystore -alias "${{ secrets.KEY_ALIAS }}" -storepass "$BUBBLEWRAP_KEYSTORE_PASSWORD" | grep -i "SHA256:"
+          echo "--------------------------------------------------"
+
       # Write twa-manifest.json directly — this REPLACES "bubblewrap init"
       - name: Write twa-manifest.json
         run: |
