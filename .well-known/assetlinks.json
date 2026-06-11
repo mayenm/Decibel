@@ -1,1 +1,14 @@
-[{"relation":["delegate_permission/common.handle_all_urls"],"target":{"namespace":"android_app","package_name":"com.mayenm.decibel","sha256_cert_fingerprints":["6E:A6:D4:88:7A:AC:52:D3:FA:8C:75:2C:2C:D6:03:4A:81:AD:8D:DE:49:03:0E:9A:48:F6:F0:E7:B3:A3:D8:A8"]}}]
+[
+  {
+    "relation": [
+      "delegate_permission/common"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.mayenm.decibel",
+      "sha256_cert_fingerprints": [
+        "6E:A6:D4:88:7A:AC:52:D3:FA:8C:75:2C:2C:D6:03:4A:81:AD:8D:DE:49:03:0E:9A:48:F6:F0:E7:B3:A3:D8:A8"
+      ]
+    }
+  }
+]
