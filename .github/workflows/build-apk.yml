@@ -67,15 +67,15 @@ jobs:
           EOF
 
       # Bubblewrap asks 4 prompts in order:
-      #   1. Install JDK?          → n   (we already have Java 17)
-      #   2. Path to JDK 17        → $JAVA_HOME  (set automatically by setup-java)
-      #   3. Keystore password     → $KS_PASS
-      #   4. Key password          → $KEY_PASS
+      #   1. Install JDK?          → n          (we already have Java 17)
+      #   2. Keystore password     → $KS_PASS
+      #   3. Key password          → $KEY_PASS
+      #   4. Path to JDK 17        → $JAVA_HOME (set automatically by setup-java, asked LAST)
       - name: Build APK
         env:
           KS_PASS: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_PASS: ${{ secrets.KEY_PASSWORD }}
-        run: printf 'n\n%s\n%s\n%s\n' "$JAVA_HOME" "$KS_PASS" "$KEY_PASS" | bubblewrap build
+        run: printf 'n\n%s\n%s\n%s\n' "$KS_PASS" "$KEY_PASS" "$JAVA_HOME" | bubblewrap build
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
