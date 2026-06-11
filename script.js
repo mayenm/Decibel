@@ -528,9 +528,8 @@ haptic(10);
 function openProfileMenu() {
 const btn = document.getElementById('profile-trigger-btn');
 const menu = document.getElementById('profile-menu-card');
-const screen = document.querySelector('.phone-screen');
 const btnRect = btn.getBoundingClientRect();
-const screenRect = screen.getBoundingClientRect();
+const screenRect = { top: 0, left: 0, right: window.innerWidth, width: window.innerWidth, bottom: window.innerHeight };
 let top = btnRect.bottom - screenRect.top + 8;
 let right = screenRect.right - btnRect.right;
 if (screenRect.width - right - 256 < 16) {
@@ -954,7 +953,7 @@ function showContextMenu(e) {
 const menu = document.getElementById('context-menu');
 const btn = document.getElementById('add-btn');
 const rect = btn.getBoundingClientRect();
-const pr = btn.closest('.phone-screen').getBoundingClientRect();
+const pr = { right: window.innerWidth, bottom: window.innerHeight };
 menu.style.right = (pr.right - rect.right) + 'px';
 menu.style.bottom = (pr.bottom - rect.top + 10) + 'px';
 menu.style.left = 'auto';
@@ -3393,16 +3392,7 @@ this.closePath();
 return this;
 };
 }
-function updateStatusBarTime() {
-const now = new Date();
-let h = now.getHours();
-const m = now.getMinutes();
-h = h % 12 || 12;
-document.getElementById('status-time').textContent = `${h}:${m.toString().padStart(2, '0')}`;
-}
 async function init() {
-  updateStatusBarTime();
-  setInterval(updateStatusBarTime, 60000);
   await loadState();
   applyTheme(state.theme, true);
 const onbWave = document.getElementById('onb-waveform');
