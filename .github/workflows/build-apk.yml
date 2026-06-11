@@ -32,8 +32,6 @@ jobs:
         run: npm install -g @bubblewrap/cli
 
       # Create the config file directly to bypass ALL interactive CLI prompts.
-      # Running `bubblewrap updateConfig` still triggers the interactive JDK prompt 
-      # in CI environments, which causes the exit code 130 crash.
       - name: Configure Bubblewrap JDK and SDK paths
         run: |
           mkdir -p ~/.bubblewrap
@@ -43,6 +41,15 @@ jobs:
             "androidSdkPath": "$ANDROID_SDK_ROOT"
           }
           EOF
+
+      # The Ubuntu 24.04 runner places sdkmanager in cmdline-tools/latest/bin, 
+      # but Bubblewrap expects it in tools/bin or bin. 
+      # We create a symlink so Bubblewrap can find it and pass validation.
+      - name: Fix Bubblewrap SDK Path
+        run: |
+          if [ ! -e "$ANDROID_SDK_ROOT/bin" ]; then
+            ln -s "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" "$ANDROID_SDK_ROOT/bin"
+          fi
 
       # Recreate the keystore from the base64 secret
       - name: Decode keystore
