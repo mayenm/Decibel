@@ -8,10 +8,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Setup Node
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: 18
 
@@ -20,7 +20,9 @@ jobs:
 
       - name: Build APK
         run: |
-          yes | bubblewrap init --manifest https://mayenm.github.io/Decibel/manifest.json
+          yes | bubblewrap init \
+            --manifest https://mayenm.github.io/Decibel/manifest.json \
+            --package-id com.mayenm.decibel
           yes | bubblewrap build
 
       - name: Upload APK
