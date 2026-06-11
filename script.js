@@ -1,3 +1,124 @@
+// ─── IndexedDB Storage ───────────────────────────────────────────
+const DB_NAME = 'DecibelDB';
+const DB_VERSION = 1;
+let db = null;
+
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = (e) => {
+      const database = e.target.result;
+      if (!database.objectStoreNames.contains('notes')) {
+        database.createObjectStore('notes', { keyPath: 'id' });
+      }
+      if (!database.objectStoreNames.contains('settings')) {
+        database.createObjectStore('settings', { keyPath: 'key' });
+      }
+      if (!database.objectStoreNames.contains('audio')) {
+        database.createObjectStore('audio', { keyPath: 'id' });
+      }
+    };
+    req.onsuccess = (e) => { db = e.target.result; resolve(db); };
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function saveNoteToDB(note) {
+  if (!db) return;
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(['notes', 'audio'], 'readwrite');
+    const noteStore = tx.objectStore('notes');
+    const audioStore = tx.objectStore('audio');
+    const noteToSave = {...note};
+    delete noteToSave.audioBlob;
+    delete noteToSave.audioFileURL;
+    noteStore.put(noteToSave);
+    if (note.audioBlob) {
+      audioStore.put({ id: note.id, blob: note.audioBlob });
+    }
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function deleteNoteFromDB(id) {
+  if (!db) return;
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(['notes', 'audio'], 'readwrite');
+    tx.objectStore('notes').delete(id);
+    tx.objectStore('audio').delete(id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function loadAllNotesFromDB() {
+  if (!db) return [];
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(['notes', 'audio'], 'readonly');
+    const noteStore = tx.objectStore('notes');
+    const audioStore = tx.objectStore('audio');
+    const notes = [];
+    noteStore.openCursor().onsuccess = (e) => {
+      const cursor = e.target.result;
+      if (cursor) {
+        notes.push(cursor.value);
+        cursor.continue();
+      }
+    };
+    tx.oncomplete = async () => {
+      for (const note of notes) {
+        if (!note.tags) note.tags = [];
+        await new Promise((res) => {
+          const req = audioStore.get(note.id);
+          req.onsuccess = () => {
+            if (req.result && req.result.blob) {
+              note.audioBlob = req.result.blob;
+              note.audioFileURL = URL.createObjectURL(note.audioBlob);
+            }
+            res();
+          };
+          req.onerror = () => res();
+        });
+      }
+      notes.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      resolve(notes);
+    };
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function saveSettingsToDB(settings) {
+  if (!db) return;
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('settings', 'readwrite');
+    const store = tx.objectStore('settings');
+    Object.entries(settings).forEach(([key, value]) => {
+      store.put({ key, value });
+    });
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function loadSettingsFromDB() {
+  if (!db) return {};
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('settings', 'readonly');
+    const store = tx.objectStore('settings');
+    const settings = {};
+    store.openCursor().onsuccess = (e) => {
+      const cursor = e.target.result;
+      if (cursor) {
+        settings[cursor.value.key] = cursor.value.value;
+        cursor.continue();
+      }
+    };
+    tx.oncomplete = () => resolve(settings);
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
 const APP_VERSION = '1.0.0';
 const STORAGE_KEY = 'voiceNoteApp_v3';
 const HELP_URL = 'https://discord.gg/vhytdFAwe';
@@ -121,77 +242,58 @@ const sizes = ['Bytes', 'KB', 'MB', 'GB'];
 const i = Math.floor(Math.log(bytes) / Math.log(k));
 return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
-function saveState() {
-const toSave = {
-userName: state.userName,
-hasOnboarded: state.hasOnboarded,
-theme: state.theme,
-currentFilter: state.currentFilter,
-isUserSignedIn: state.isUserSignedIn,
-userProfile: state.userProfile,
-notes: state.notes.map(n => {
-const c = {...n};
-delete c.audioFileURL;
-delete c.audioBlob;
-return c;
-})
-};
-const promises = state.notes.map(n => {
-if (n.audioBlob && !n.audioData) {
-return new Promise(resolve => {
-const reader = new FileReader();
-reader.onloadend = () => {
-const b64 = reader.result.split(',')[1];
-const sn = toSave.notes.find(x => x.id === n.id);
-if (sn) sn.audioData = b64;
-resolve();
-};
-reader.readAsDataURL(n.audioBlob);
-});
-}
-return Promise.resolve();
-});
-Promise.all(promises).then(() => {
-try {
-localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
-} catch(e) {
-console.error('Save error:', e);
-showToast('Storage full. Some data may not be saved.');
-}
-});
-}
-function loadState() {
-try {
-const stored = localStorage.getItem(STORAGE_KEY);
-if (stored) {
-const data = JSON.parse(stored);
-state.userName = data.userName || 'there';
-state.hasOnboarded = data.hasOnboarded || false;
-state.theme = data.theme || 'light';
-state.currentFilter = data.currentFilter || 'voice';
-state.isUserSignedIn = data.isUserSignedIn !== undefined ? data.isUserSignedIn : false;
-state.userProfile = data.userProfile || { firstName: '', lastName: '', email: '' };
-state.notes = (data.notes || []).map(n => {
-if (n.audioData) {
-try {
-const byteChars = atob(n.audioData);
-const byteArray = new Uint8Array(byteChars.length);
-for (let i = 0; i < byteChars.length; i++) {
-byteArray[i] = byteChars.charCodeAt(i);
-}
-n.audioBlob = new Blob([byteArray], {type: 'audio/webm'});
-n.audioFileURL = URL.createObjectURL(n.audioBlob);
-} catch(e) {
-console.error('Audio restore error:', e);
+async function saveState() {
+  const settings = {
+    userName: state.userName,
+    hasOnboarded: state.hasOnboarded,
+    theme: state.theme,
+    currentFilter: state.currentFilter,
+    isUserSignedIn: state.isUserSignedIn,
+    userProfile: state.userProfile,
+    backupEnabled: state.backupEnabled
+  };
+  await saveSettingsToDB(settings);
+  for (const note of state.notes) {
+    await saveNoteToDB(note);
+  }
 }
 }
-if (!n.tags) n.tags = [];
-return n;
-});
+async function loadState() {
+  try {
+    await openDB();
+    const settings = await loadSettingsFromDB();
+    state.userName = settings.userName || 'there';
+    state.hasOnboarded = settings.hasOnboarded || false;
+    state.theme = settings.theme || 'light';
+    state.currentFilter = settings.currentFilter || 'voice';
+    state.isUserSignedIn = settings.isUserSignedIn || false;
+    state.userProfile = settings.userProfile || { firstName: '', lastName: '', email: '' };
+    state.backupEnabled = settings.backupEnabled !== undefined ? settings.backupEnabled : true;
+    state.notes = await loadAllNotesFromDB();
+  } catch(e) {
+    console.error('Load error:', e);
+  }
 }
-} catch(e) {
-console.error('Load error:', e);
+function triggerGoogleSignIn() {
+  google.accounts.id.prompt();
 }
+
+function handleGoogleCredential(response) {
+  const payload = JSON.parse(atob(response.credential.split('.')[1]));
+  const nameParts = (payload.name || 'User').split(' ');
+  state.isUserSignedIn = true;
+  state.userProfile = {
+    firstName: nameParts[0] || 'User',
+    lastName: nameParts.slice(1).join(' ') || '',
+    email: payload.email || ''
+  };
+  state.userName = state.userProfile.firstName;
+  state.hasOnboarded = true;
+  saveState();
+  renderProfileTrigger();
+  showScreen('screen-home');
+  showToast('Signed in with Google');
+  haptic([10, 50, 10]);
 }
 function applyTheme(theme, instant = false) {
 document.documentElement.setAttribute('data-theme', theme);
@@ -241,8 +343,49 @@ function toggleThemeFromSettings(isDark) {
     }, 400);
 }
 function toggleBackup(enabled) {
-haptic(10);
-showToast(enabled ? 'iCloud Backup enabled' : 'iCloud Backup disabled');
+  state.backupEnabled = enabled;
+  saveState();
+  if (enabled) {
+    showToast('Auto-backup enabled');
+    scheduleBackup();
+  } else {
+    showToast('Auto-backup disabled');
+    if (state.backupInterval) {
+      clearInterval(state.backupInterval);
+      state.backupInterval = null;
+    }
+  }
+  haptic(10);
+}
+
+function scheduleBackup() {
+  if (state.backupInterval) clearInterval(state.backupInterval);
+  // Auto backup every 10 minutes if enabled
+  state.backupInterval = setInterval(() => {
+    if (state.backupEnabled && state.notes.length > 0) {
+      silentBackup();
+    }
+  }, 10 * 60 * 1000);
+}
+
+function silentBackup() {
+  try {
+    const data = JSON.stringify({
+      notes: state.notes.map(n => {
+        const c = {...n};
+        delete c.audioFileURL;
+        delete c.audioBlob;
+        return c;
+      }),
+      exportedAt: new Date().toISOString(),
+      version: APP_VERSION
+    });
+    localStorage.setItem('decibel_auto_backup', data);
+    localStorage.setItem('decibel_backup_time', new Date().toISOString());
+    console.log('Auto backup saved at', new Date().toLocaleTimeString());
+  } catch(e) {
+    console.warn('Auto backup failed:', e);
+  }
 }
 function showScreen(id, direction = 'forward') {
 if (state.currentScreen === id) return;
@@ -1184,7 +1327,17 @@ state.analyser = state.audioContext.createAnalyser();
 state.analyser.fftSize = 2048;
 const source = state.audioContext.createMediaStreamSource(stream);
 source.connect(state.analyser);
-state.mediaRecorder = new MediaRecorder(stream);
+const mimeType = MediaRecorder.isTypeSupported('audio/mp4') 
+  ? 'audio/mp4'
+  : MediaRecorder.isTypeSupported('audio/webm') 
+  ? 'audio/webm' 
+  : '';
+
+state.mediaRecorder = mimeType 
+  ? new MediaRecorder(stream, { mimeType }) 
+  : new MediaRecorder(stream);
+
+state.currentMimeType = mimeType || 'audio/webm';
 state.audioChunks = [];
 state.mediaRecorder.ondataavailable = (e) => {
 if (e.data.size > 0) state.audioChunks.push(e.data);
@@ -1270,7 +1423,7 @@ if (state.recognition) {
 try { state.recognition.stop(); } catch(e) {}
 }
 state.mediaRecorder.onstop = () => {
-const audioBlob = new Blob(state.audioChunks, {type: 'audio/webm'});
+const audioBlob = new Blob(state.audioChunks, {type: state.currentMimeType || 'audio/webm'});
 const audioUrl = URL.createObjectURL(audioBlob);
 if (state.micStream) state.micStream.getTracks().forEach(t => t.stop());
 if (state.audioContext) state.audioContext.close();
@@ -1288,13 +1441,23 @@ state.mediaRecorder.stop();
 haptic([10, 50, 10]);
 }
 function initSpeechRecognition() {
-if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-state.recognition = new SR();
-state.recognition.continuous = true;
-state.recognition.interimResults = true;
-state.recognition.lang = 'en-US';
-state.recognition.maxAlternatives = 3;
+  const SR = window.SpeechRecognition || 
+             window.webkitSpeechRecognition || 
+             window.mozSpeechRecognition ||
+             window.msSpeechRecognition;
+
+  if (!SR) {
+    console.warn('Speech recognition not supported on this browser');
+    state.speechSupported = false;
+    return;
+  }
+
+  state.speechSupported = true;
+  state.recognition = new SR();
+  state.recognition.continuous = true;
+  state.recognition.interimResults = true;
+  state.recognition.lang = 'en-US';
+  state.recognition.maxAlternatives = 3;
 state.recognition.onresult = (event) => {
 let interim = '';
 let finalAdd = '';
@@ -1661,8 +1824,14 @@ state.audioReactor.destroy();
 state.audioReactor = null;
 }
 if (state.silenceTimer) clearTimeout(state.silenceTimer);
-if (state.recognition) {
-try { state.recognition.stop(); } catch(e) {}
+if (state.recognition && state.speechSupported) {
+  updateLiveTranscript();
+  try {
+    state.recognition.start();
+  } catch(e) {}
+} else if (!state.speechSupported) {
+  document.getElementById('rec-live-text').innerHTML = 
+    '<span class="rec-listening">Transcription not supported on this browser. Audio is still being recorded.</span>';
 }
 if (state.mediaRecorder && state.mediaRecorder.state !== 'inactive') state.mediaRecorder.stop();
 if (state.micStream) state.micStream.getTracks().forEach(t => t.stop());
@@ -1700,14 +1869,15 @@ return;
 stopReviewAudio();
 const combinedTranscript = (state.finalTranscript + ' ' + state.interimTranscript).trim();
 state.notes.unshift({
-id: 'note_' + Date.now(),
-title,
-originalTranscription: combinedTranscript,
-editedBody: body,
-audioFileURL: state.currentReviewAudioUrl,
-audioBlob: state.currentReviewBlob,
-waveformData: [...state.waveformData],
-type: 'voice',
+  id: 'note_' + Date.now(),
+  title,
+  originalTranscription: combinedTranscript,
+  editedBody: body,
+  audioFileURL: state.currentReviewAudioUrl,
+  audioBlob: state.currentReviewBlob,
+  mimeType: state.currentMimeType || 'audio/webm',  // ADD THIS LINE
+  waveformData: [...state.waveformData],
+  type: 'voice',
 media: [],
 tags: [],
 createdAt: new Date().toISOString(),
@@ -2332,6 +2502,7 @@ const note = state.notes.find(n => n.id === pendingDeleteNoteId);
 stopDetailAudio();
 if (note && note.audioFileURL) URL.revokeObjectURL(note.audioFileURL);
 state.notes = state.notes.filter(n => n.id !== pendingDeleteNoteId);
+deleteNoteFromDB(pendingDeleteNoteId);
 saveState();
 showToast('Note deleted');
 haptic([10, 50, 10]);
@@ -2448,7 +2619,7 @@ const byteArray = new Uint8Array(byteChars.length);
 for (let i = 0; i < byteChars.length; i++) {
 byteArray[i] = byteChars.charCodeAt(i);
 }
-n.audioBlob = new Blob([byteArray], {type: 'audio/webm'});
+n.audioBlob = new Blob([byteArray], {type: n.mimeType || 'audio/webm'});
 n.audioFileURL = URL.createObjectURL(n.audioBlob);
 } catch(err) {}
 }
@@ -3217,11 +3388,11 @@ const m = now.getMinutes();
 h = h % 12 || 12;
 document.getElementById('status-time').textContent = `${h}:${m.toString().padStart(2, '0')}`;
 }
-function init() {
-updateStatusBarTime();
-setInterval(updateStatusBarTime, 60000);
-loadState();
-applyTheme(state.theme, true);
+async function init() {
+  updateStatusBarTime();
+  setInterval(updateStatusBarTime, 60000);
+  await loadState();
+  applyTheme(state.theme, true);
 const onbWave = document.getElementById('onb-waveform');
 for (let i = 0; i < 50; i++) {
 const bar = document.createElement('div');
@@ -3335,5 +3506,15 @@ isHandlingPopstate = false;
   requestAnimationFrame(() => {
     document.querySelector('.phone-screen').classList.remove('no-transitions');
   });
+
+  // Hide splash screen
+  const splash = document.getElementById('splash-screen');
+  if (splash) {
+    setTimeout(() => {
+      splash.style.opacity = '0';
+      setTimeout(() => splash.remove(), 600);
+    }, 1200);
+  }
 }
+if (state.backupEnabled) scheduleBackup();
 init();
