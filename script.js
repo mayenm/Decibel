@@ -1883,7 +1883,7 @@ async function saveNote() {
   if (state.currentReviewBlob) {
     showToast('Enhancing & syncing audio...');
     try {
-      const workerUrl = "https://YOUR-WORKER-URL.workers.dev"; // <-- PASTE YOUR URL HERE
+      const workerUrl = "https://decibel-proxy.mayenmajok29.workers.dev/"; // <-- PASTE YOUR URL HERE
       const formData = new FormData();
       const ext = state.currentMimeType && state.currentMimeType.includes('mp4') ? 'mp4' : 'webm';
       formData.append("file", state.currentReviewBlob, `recording.${ext}`);

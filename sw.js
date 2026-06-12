@@ -1,4 +1,4 @@
-const CACHE_NAME = "decibel-v9";
+const CACHE_NAME = "decibel-v10";
 const FILES_TO_CACHE = [
   "/Decibel/",
   "/Decibel/index.html",
