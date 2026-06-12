@@ -1879,7 +1879,6 @@ async function saveNote() {
   let finalTranscript = (state.finalTranscript + ' ' + state.interimTranscript).trim();
   let finalBody = body; 
   
-  // --- CLOUDFLARE WORKER INTEGRATION ---
   if (state.currentReviewBlob) {
     showToast('Enhancing & syncing audio...');
     try {
@@ -1888,8 +1887,6 @@ async function saveNote() {
       const ext = state.currentMimeType && state.currentMimeType.includes('mp4') ? 'mp4' : 'webm';
       formData.append("file", state.currentReviewBlob, `recording.${ext}`);
       formData.append("model", "whisper-large-v3-turbo");
-      
-      // 🚨 KARAOKE MODE: Request exact word-level timestamps 🚨
       formData.append("response_format", "verbose_json");
       formData.append("timestamp_granularities[]", "word");
 
@@ -1900,24 +1897,37 @@ async function saveNote() {
         finalTranscript = data.text.trim();
         finalBody = finalTranscript; 
         
-        // 🚨 EXTRACT PERFECT AUDIO-SYNCED TIMESTAMPS 🚨
         if (data.words && Array.isArray(data.words)) {
-          state.currentReviewWordTimings = data.words.map((w, idx) => ({
-            wordIndex: idx,
-            word: w.word.trim(),
-            start: w.start,
-            end: w.end
-          }));
+          // 🚨 THE PUNCTUATION CLEANUP ALGORITHM 🚨
+          // Merges stray punctuation tokens into the previous word's timing
+          const cleanTimings = [];
+          let buffer = null;
+          
+          data.words.forEach(w => {
+            const trimmed = w.word.trim();
+            if (!trimmed) return;
+            const isPunctuation = !/[a-zA-Z0-9\u00C0-\u024F]/.test(trimmed);
+            
+            if (isPunctuation && buffer) {
+              buffer.end = w.end;
+              buffer.word += trimmed;
+            } else {
+              if (buffer) cleanTimings.push(buffer);
+              buffer = { word: trimmed, start: w.start, end: w.end };
+            }
+          });
+          if (buffer) cleanTimings.push(buffer);
+          
+          state.currentReviewWordTimings = cleanTimings;
         }
       }
     } catch (err) { console.warn("Network error, using local draft:", err); }
   }
-  // -------------------------------------
 
   state.notes.unshift({
     id: 'note_' + Date.now(), title,
     originalTranscription: finalTranscript,
-    editedBody: finalBody || finalTranscript, 
+    editedBody: finalBody || finalTranscript,
     audioFileURL: state.currentReviewAudioUrl,
     audioBlob: state.currentReviewBlob,
     mimeType: state.currentMimeType || 'audio/webm',
@@ -1925,7 +1935,7 @@ async function saveNote() {
     type: 'voice', media: [], tags: [],
     createdAt: new Date().toISOString(),
     duration: state.currentReviewDuration,
-    wordTimings: state.currentReviewWordTimings || [] // Saves the perfect Groq timings
+    wordTimings: state.currentReviewWordTimings || []
   });
   
   await saveState();
@@ -2102,145 +2112,132 @@ drawDetailWaveform(Math.min(progress, 1), note.waveformData, false, state.scrubS
 }
 }
 function updateWordHighlight() {
-const audio = document.getElementById('detail-audio');
-const container = document.getElementById('det-editable-text');
-if (!container) return;
-const note = state.notes.find(n => n.id === state.currentNoteId);
-if (!note) return;
-const currentTime = audio.currentTime;
-if (!state.wordTiming || state.wordTiming.length === 0) {
-if (note.wordTimings && note.wordTimings.length > 0) {
-state.wordTiming = note.wordTimings.map(t => ({...t}));
-} else {
-buildWordTiming(note);
-}
-if (!state.wordTiming || state.wordTiming.length === 0) return;
-}
-let activeWordIndex = -1;
-for (let i = 0; i < state.wordTiming.length; i++) {
-const w = state.wordTiming[i];
-if (currentTime >= w.start && currentTime < w.end) {
-activeWordIndex = w.wordIndex;
-break;
-}
-}
-if (activeWordIndex === -1 && state.wordTiming.length > 0) {
-const lastTiming = state.wordTiming[state.wordTiming.length - 1];
-if (currentTime >= lastTiming.end) {
-activeWordIndex = lastTiming.wordIndex;
-} else if (currentTime < state.wordTiming[0].start) {
-activeWordIndex = 0;
-}
-}
-if (activeWordIndex !== state.currentWordIndex) {
-state.currentWordIndex = activeWordIndex;
-const targetSpan = container.querySelector(`.det-word.det-original[data-word-index="${activeWordIndex}"]`);
-container.querySelectorAll('.det-word.det-current-word').forEach(span => {
-span.classList.remove('det-current-word');
-});
-if (targetSpan) {
-targetSpan.classList.add('det-current-word');
-}
-}
-if (activeWordIndex >= 0) {
-const currentSpan = container.querySelector(`.det-word.det-original[data-word-index="${activeWordIndex}"]`);
-if (currentSpan) {
-const rect = currentSpan.getBoundingClientRect();
-const containerRect = container.getBoundingClientRect();
-if (rect.top < containerRect.top + 80 || rect.bottom > containerRect.bottom - 80) {
-currentSpan.scrollIntoView({ behavior: 'smooth', block: 'center' });
-}
-}
-}
+  const audio = document.getElementById('detail-audio');
+  const container = document.getElementById('det-editable-text');
+  if (!container || !audio) return;
+  
+  const currentTime = audio.currentTime;
+  const spans = container.querySelectorAll('.det-word.det-original');
+  
+  let activeSpan = null;
+  let closestSpan = null;
+  let minDiff = Infinity;
+  
+  for (let i = 0; i < spans.length; i++) {
+    const span = spans[i];
+    const start = parseFloat(span.getAttribute('data-start'));
+    const end = parseFloat(span.getAttribute('data-end'));
+    
+    if (currentTime >= start && currentTime < end) {
+      activeSpan = span;
+      break;
+    }
+    
+    // Fallback: If we are in a micro-pause between words, highlight the closest one
+    const diff = Math.min(Math.abs(currentTime - start), Math.abs(currentTime - end));
+    if (diff < minDiff && currentTime >= start) {
+      minDiff = diff;
+      closestSpan = span;
+    }
+  }
+  
+  if (!activeSpan && closestSpan) {
+    activeSpan = closestSpan;
+  }
+  
+  container.querySelectorAll('.det-word.det-current-word').forEach(span => {
+    span.classList.remove('det-current-word');
+  });
+  
+  if (activeSpan) {
+    activeSpan.classList.add('det-current-word');
+    const rect = activeSpan.getBoundingClientRect();
+    const containerRect = container.getBoundingClientRect();
+    if (rect.top < containerRect.top + 80 || rect.bottom > containerRect.bottom - 80) {
+      activeSpan.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }
 }
 function renderDetailText() {
-    const note = state.notes.find(n => n.id === state.currentNoteId);
-    if (!note) return;
-    const container = document.getElementById('det-editable-text');
-    const originalText = note.originalTranscription || '';
-    const editedText = note.editedBody || originalText; // Reverted to normal
-    container.innerHTML = '';
-
-// Skip diffing for written notes as they have no original audio transcript
-if (note.type === 'written') {
+  const note = state.notes.find(n => n.id === state.currentNoteId);
+  if (!note) return;
+  const container = document.getElementById('det-editable-text');
+  const originalText = note.originalTranscription || '';
+  const editedText = note.editedBody || originalText;
+  container.innerHTML = '';
+  
+  if (note.type === 'written') {
     container.textContent = editedText;
     return;
-}
-
-let originalWordIdx = 0;
-// Use your existing diffWords function to compare original vs edited
-const diffResult = diffWords(originalText, editedText);
-
-diffResult.forEach(part => {
-    if (part.removed) return; // Skip words that were in the audio but deleted by the user
-
-    // Split by whitespace to process words and spaces individually
+  }
+  
+  const diffResult = diffWords(originalText, editedText);
+  const wordTimings = state.wordTiming || [];
+  let timingPtr = 0; // Tracks our exact position in the audio timeline
+  
+  diffResult.forEach(part => {
     const tokens = part.value.split(/(\s+)/);
     
     tokens.forEach(token => {
-        if (!token) return;
-        
-        // Handle whitespace and newlines
-        if (/\s+/.test(token)) {
-            if (token.includes('\n')) {
-                const lines = token.split('\n');
-                lines.forEach((line, i) => {
-                    if (line) container.appendChild(document.createTextNode(line));
-                    if (i < lines.length - 1) container.appendChild(document.createElement('br'));
-                });
-            } else {
-                container.appendChild(document.createTextNode(token));
-            }
-            return;
-        }
-
-        // Check for special transcript pills
-        const musicMatch = token.match(/^\[MUSIC\]$/);
-        const maleMatch = token.match(/^\[MALE_(\d+)\]$/);
-        const femaleMatch = token.match(/^\[FEMALE_(\d+)\]$/);
-
-        if (musicMatch) {
-            const pill = document.createElement('span');
-            pill.className = 'transcript-pill music-pill';
-            pill.contentEditable = 'false';
-            pill.textContent = 'Music playing';
-            container.appendChild(pill);
-        } else if (maleMatch) {
-            const pill = document.createElement('span');
-            pill.className = 'transcript-pill male-pill';
-            pill.contentEditable = 'false';
-            pill.textContent = `MALE ${maleMatch[1]}`;
-            container.appendChild(pill);
-        } else if (femaleMatch) {
-            const pill = document.createElement('span');
-            pill.className = 'transcript-pill female-pill';
-            pill.contentEditable = 'false';
-            pill.textContent = `FEMALE ${femaleMatch[1]}`;
-            container.appendChild(pill);
+      if (!token) return;
+      
+      if (/\s+/.test(token)) {
+        if (token.includes('\n')) {
+          const lines = token.split('\n'); 
+          lines.forEach((line, i) => {
+            if (line) container.appendChild(document.createTextNode(line));
+            if (i < lines.length - 1) container.appendChild(document.createElement('br'));
+          });
         } else {
-            // Regular word rendering
-            if (part.added) {
-                // FIX: Inject added words as PLAIN TEXT NODES.
-                // Because the parent container is gray/italic by default (via CSS), 
-                // this text will appear gray. More importantly, because it is NOT 
-                // inside a <span>, the mobile keyboard won't lose its anchor and 
-                // won't trigger phantom line breaks!
-                container.appendChild(document.createTextNode(token));
-            } else {
-                const span = document.createElement('span');
-                span.className = 'det-word det-original';
-                span.setAttribute('data-word-index', originalWordIdx++);
-                span.textContent = token;
-                container.appendChild(span);
-                // Append a zero-width text node after each original span.
-                // This gives the browser a neutral text node to extend into when
-                // the user types adjacent to a span, preventing the span's black
-                // color from being inherited by newly typed (added) characters.
-                container.appendChild(document.createTextNode('\u200B'));
-            }
+          container.appendChild(document.createTextNode(token));
         }
+        return;
+      }
+      
+      const musicMatch = token.match(/^\[MUSIC\]$/);
+      const maleMatch = token.match(/^\[MALE_(\d+)\]$/);
+      const femaleMatch = token.match(/^\[FEMALE_(\d+)\]$/);
+      
+      if (musicMatch || maleMatch || femaleMatch) {
+        const pill = document.createElement('span');
+        pill.className = 'transcript-pill ' + (musicMatch ? 'music-pill' : maleMatch ? 'male-pill' : 'female-pill');
+        pill.contentEditable = 'false';
+        pill.textContent = musicMatch ? 'Music playing' : maleMatch ? `MALE ${maleMatch[1]}` : `FEMALE ${femaleMatch[1]}`;
+        container.appendChild(pill);
+        return;
+      }
+      
+      if (part.removed) {
+        // User deleted this word. Advance timing pointer to skip its audio.
+        if (timingPtr < wordTimings.length) timingPtr++;
+        return;
+      }
+      
+      if (part.added) {
+        // User added this word. Render as plain gray text (no audio sync).
+        container.appendChild(document.createTextNode(token));
+        return;
+      }
+      
+      // ORIGINAL WORD: Map directly to the audio timestamp
+      const span = document.createElement('span');
+      span.className = 'det-word det-original';
+      
+      if (timingPtr < wordTimings.length) {
+        const timing = wordTimings[timingPtr];
+        span.setAttribute('data-start', timing.start);
+        span.setAttribute('data-end', timing.end);
+        timingPtr++;
+      } else {
+        span.setAttribute('data-start', 9999);
+        span.setAttribute('data-end', 9999);
+      }
+      
+      span.textContent = token;
+      container.appendChild(span);
+      container.appendChild(document.createTextNode('\u200B'));
     });
-});
+  });
 }
 function getRawTextFromDOM(el) {
     let raw = '';
