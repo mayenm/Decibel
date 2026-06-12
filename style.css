@@ -1465,11 +1465,8 @@ html {
 }
 .det-editable-text.playing .det-current-word {
   color: var(--text-primary) !important;
-  font-weight: 700;
   font-style: normal;
-  transition:
-    color 0.1s ease,
-    font-weight 0.1s ease;
+  transition: color 0.08s ease;
 }
 .det-media-area {
   width: 100%;
