@@ -1,4 +1,4 @@
-const CACHE_NAME = "decibel-v11"; // Bumped version
+const CACHE_NAME = "decibel-v12"; // Bumped version to clear old cache
 const FILES_TO_CACHE = [
   "./",
   "./index.html",
@@ -6,6 +6,7 @@ const FILES_TO_CACHE = [
   "./script.js",
   "./manifest.json"
 ];
+// ... rest of the file remains the same
 
 self.addEventListener("install", (e) => {
   e.waitUntil(
