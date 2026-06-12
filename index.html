@@ -486,9 +486,9 @@ Start Recording
 <audio id="detail-audio" style="display:none;"></audio>
 <script src="script.js"></script>
 <script>
-  if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("/Decibel/sw.js");
-  }
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('./sw.js'); // ✅ Works on BOTH Live Server & GitHub Pages
+}
 </script>
 </body>
 </html>

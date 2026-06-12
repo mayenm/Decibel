@@ -1,10 +1,10 @@
-const CACHE_NAME = "decibel-v10";
+const CACHE_NAME = "decibel-v11"; // Bumped version
 const FILES_TO_CACHE = [
-  "/Decibel/",
-  "/Decibel/index.html",
-  "/Decibel/style.css",
-  "/Decibel/script.js",
-  "/Decibel/manifest.json"
+  "./",
+  "./index.html",
+  "./style.css",
+  "./script.js",
+  "./manifest.json"
 ];
 
 self.addEventListener("install", (e) => {

@@ -1207,6 +1207,7 @@ if (pitch > 50 && pitch < 500) {
     state.recentPitches.push(pitch);
     if (state.recentPitches.length > 60) state.recentPitches.shift();
 }
+
 let currentKaraokeMap = [];
 
 function buildKaraokeMap(note) {
@@ -1226,7 +1227,6 @@ function buildKaraokeMap(note) {
         const cw = currentWords[i].toLowerCase().replace(/[.,!?;:]/g, '');
         let bestMatch = -1;
         
-        // Search window: look ahead up to 30 words to find the match
         const searchLimit = Math.min(origIdx + 30, originalWords.length);
         for (let j = origIdx; j < searchLimit; j++) {
             if (originalWords[j] === cw) {
@@ -1243,7 +1243,6 @@ function buildKaraokeMap(note) {
             });
             origIdx = bestMatch + 1;
         } else {
-            // Word was added by user or changed completely. No audio timing.
             karaokeMap.push({ start: -1, end: -1, domWordIndex: i });
         }
     }
@@ -2059,22 +2058,23 @@ const pauseIcon = document.querySelector('.det-pause-icon');
 if (playIcon) playIcon.style.display = 'block';
 if (pauseIcon) pauseIcon.style.display = 'none';
 };
+// ─── REPLACE YOUR audio.onplay BLOCK inside openNoteDetail() ───
+// Find this block and replace it:
 audio.onplay = () => {
-state.detailAudioPlaying = true;
-document.getElementById('det-editable-text').classList.add('playing');
-const playIcon = document.querySelector('.det-play-icon');
-const pauseIcon = document.querySelector('.det-pause-icon');
-if (playIcon) playIcon.style.display = 'none';
-if (pauseIcon) pauseIcon.style.display = 'block';
-currentKaraokeMap = buildKaraokeMap(note);
-if (!state.wordTiming || state.wordTiming.length === 0) {
-if (note.wordTimings && note.wordTimings.length > 0) {
-state.wordTiming = note.wordTimings.map(t => ({...t}));
-} else {
-buildWordTiming(note);
-}
-}
-startDetailHighlightLoop();
+    state.detailAudioPlaying = true;
+    document.getElementById('det-editable-text').classList.add('playing');
+    const playIcon = document.querySelector('.det-play-icon');
+    const pauseIcon = document.querySelector('.det-pause-icon');
+    if (playIcon) playIcon.style.display = 'none';
+    if (pauseIcon) pauseIcon.style.display = 'block';
+    
+    // Rebuild the karaoke map every time playback starts
+    const note = state.notes.find(n => n.id === state.currentNoteId);
+    if (note) {
+        currentKaraokeMap = buildKaraokeMap(note);
+    }
+    
+    startDetailHighlightLoop();
 };
 } else {
 audioContainer.style.display = 'none';
@@ -2479,33 +2479,29 @@ ctx.shadowColor = 'transparent';
 ctx.shadowBlur = 0;
 ctx.shadowOffsetY = 0;
 }
-function toggleDetailAudio(event) {
-if (event && event.target.tagName === 'CANVAS') return;
-if (event && event.target.closest('.det-waveform-container')) return;
-const audio = document.getElementById('detail-audio');
-const note = state.notes.find(n => n.id === state.currentNoteId);
-if (!note) return;
-if (audio.paused) {
-audio.play().catch(e => console.error('Play failed:', e));
-state.detailAudioPlaying = true;
-document.getElementById('det-editable-text').classList.add('playing');
-currentKaraokeMap = buildKaraokeMap(note);
-if (!state.wordTiming || state.wordTiming.length === 0) {
-if (note.wordTimings && note.wordTimings.length > 0) {
-state.wordTiming = note.wordTimings.map(t => ({...t}));
-} else {
-buildWordTiming(note);
-}
-}
-startDetailHighlightLoop();
-const dur = getDetailDuration(note);
-drawDetailWaveform(0, note.waveformData, true, 1);
-haptic(10);
-} else {
-audio.pause();
-stopDetailHighlight();
-haptic(10);
-}
+// ─── REPLACE YOUR toggleDetailAudio() FUNCTION ───
+function toggleDetailAudio() {
+    const audio = document.getElementById('detail-audio');
+    if (!audio) return;
+    
+    if (audio.paused) {
+        audio.play().catch(e => console.error('Play failed:', e));
+        state.detailAudioPlaying = true;
+        document.getElementById('det-editable-text').classList.add('playing');
+        
+        // Rebuild the karaoke map every time playback starts
+        const note = state.notes.find(n => n.id === state.currentNoteId);
+        if (note) {
+            currentKaraokeMap = buildKaraokeMap(note);
+        }
+        
+        startDetailHighlightLoop();
+    } else {
+        audio.pause();
+        state.detailAudioPlaying = false;
+        document.getElementById('det-editable-text').classList.remove('playing');
+        stopDetailHighlightLoop();
+    }
 }
 function stopDetailAudio() {
 const audio = document.getElementById('detail-audio');
