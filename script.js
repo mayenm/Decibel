@@ -2,123 +2,116 @@
 const DB_NAME = 'DecibelDB';
 const DB_VERSION = 1;
 let db = null;
-
 function openDB() {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = (e) => {
-      const database = e.target.result;
-      if (!database.objectStoreNames.contains('notes')) {
-        database.createObjectStore('notes', { keyPath: 'id' });
-      }
-      if (!database.objectStoreNames.contains('settings')) {
-        database.createObjectStore('settings', { keyPath: 'key' });
-      }
-      if (!database.objectStoreNames.contains('audio')) {
-        database.createObjectStore('audio', { keyPath: 'id' });
-      }
-    };
-    req.onsuccess = (e) => { db = e.target.result; resolve(db); };
-    req.onerror = () => reject(req.error);
-  });
+return new Promise((resolve, reject) => {
+const req = indexedDB.open(DB_NAME, DB_VERSION);
+req.onupgradeneeded = (e) => {
+const database = e.target.result;
+if (!database.objectStoreNames.contains('notes')) {
+database.createObjectStore('notes', { keyPath: 'id' });
 }
-
+if (!database.objectStoreNames.contains('settings')) {
+database.createObjectStore('settings', { keyPath: 'key' });
+}
+if (!database.objectStoreNames.contains('audio')) {
+database.createObjectStore('audio', { keyPath: 'id' });
+}
+};
+req.onsuccess = (e) => { db = e.target.result; resolve(db); };
+req.onerror = () => reject(req.error);
+});
+}
 async function saveNoteToDB(note) {
-  if (!db) return;
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(['notes', 'audio'], 'readwrite');
-    const noteStore = tx.objectStore('notes');
-    const audioStore = tx.objectStore('audio');
-    const noteToSave = {...note};
-    delete noteToSave.audioBlob;
-    delete noteToSave.audioFileURL;
-    noteStore.put(noteToSave);
-    if (note.audioBlob) {
-      audioStore.put({ id: note.id, blob: note.audioBlob });
-    }
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
+if (!db) return;
+return new Promise((resolve, reject) => {
+const tx = db.transaction(['notes', 'audio'], 'readwrite');
+const noteStore = tx.objectStore('notes');
+const audioStore = tx.objectStore('audio');
+const noteToSave = {...note};
+delete noteToSave.audioBlob;
+delete noteToSave.audioFileURL;
+noteStore.put(noteToSave);
+if (note.audioBlob) {
+audioStore.put({ id: note.id, blob: note.audioBlob });
 }
-
+tx.oncomplete = () => resolve();
+tx.onerror = () => reject(tx.error);
+});
+}
 async function deleteNoteFromDB(id) {
-  if (!db) return;
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(['notes', 'audio'], 'readwrite');
-    tx.objectStore('notes').delete(id);
-    tx.objectStore('audio').delete(id);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
+if (!db) return;
+return new Promise((resolve, reject) => {
+const tx = db.transaction(['notes', 'audio'], 'readwrite');
+tx.objectStore('notes').delete(id);
+tx.objectStore('audio').delete(id);
+tx.oncomplete = () => resolve();
+tx.onerror = () => reject(tx.error);
+});
 }
-
 async function loadAllNotesFromDB() {
-  if (!db) return [];
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(['notes', 'audio'], 'readonly');
-    const noteStore = tx.objectStore('notes');
-    const audioStore = tx.objectStore('audio');
-    const notes = [];
-    noteStore.openCursor().onsuccess = (e) => {
-      const cursor = e.target.result;
-      if (cursor) {
-        notes.push(cursor.value);
-        cursor.continue();
-      }
-    };
-    tx.oncomplete = async () => {
-      for (const note of notes) {
-        if (!note.tags) note.tags = [];
-        await new Promise((res) => {
-          const req = audioStore.get(note.id);
-          req.onsuccess = () => {
-            if (req.result && req.result.blob) {
-              note.audioBlob = req.result.blob;
-              note.audioFileURL = URL.createObjectURL(note.audioBlob);
-            }
-            res();
-          };
-          req.onerror = () => res();
-        });
-      }
-      notes.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-      resolve(notes);
-    };
-    tx.onerror = () => reject(tx.error);
-  });
+if (!db) return [];
+return new Promise((resolve, reject) => {
+const tx = db.transaction(['notes', 'audio'], 'readonly');
+const noteStore = tx.objectStore('notes');
+const audioStore = tx.objectStore('audio');
+const notes = [];
+noteStore.openCursor().onsuccess = (e) => {
+const cursor = e.target.result;
+if (cursor) {
+notes.push(cursor.value);
+cursor.continue();
 }
-
+};
+tx.oncomplete = async () => {
+for (const note of notes) {
+if (!note.tags) note.tags = [];
+await new Promise((res) => {
+const req = audioStore.get(note.id);
+req.onsuccess = () => {
+if (req.result && req.result.blob) {
+note.audioBlob = req.result.blob;
+note.audioFileURL = URL.createObjectURL(note.audioBlob);
+}
+res();
+};
+req.onerror = () => res();
+});
+}
+notes.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+resolve(notes);
+};
+tx.onerror = () => reject(tx.error);
+});
+}
 async function saveSettingsToDB(settings) {
-  if (!db) return;
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction('settings', 'readwrite');
-    const store = tx.objectStore('settings');
-    Object.entries(settings).forEach(([key, value]) => {
-      store.put({ key, value });
-    });
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
+if (!db) return;
+return new Promise((resolve, reject) => {
+const tx = db.transaction('settings', 'readwrite');
+const store = tx.objectStore('settings');
+Object.entries(settings).forEach(([key, value]) => {
+store.put({ key, value });
+});
+tx.oncomplete = () => resolve();
+tx.onerror = () => reject(tx.error);
+});
 }
-
 async function loadSettingsFromDB() {
-  if (!db) return {};
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction('settings', 'readonly');
-    const store = tx.objectStore('settings');
-    const settings = {};
-    store.openCursor().onsuccess = (e) => {
-      const cursor = e.target.result;
-      if (cursor) {
-        settings[cursor.value.key] = cursor.value.value;
-        cursor.continue();
-      }
-    };
-    tx.oncomplete = () => resolve(settings);
-    tx.onerror = () => reject(tx.error);
-  });
+if (!db) return {};
+return new Promise((resolve, reject) => {
+const tx = db.transaction('settings', 'readonly');
+const store = tx.objectStore('settings');
+const settings = {};
+store.openCursor().onsuccess = (e) => {
+const cursor = e.target.result;
+if (cursor) {
+settings[cursor.value.key] = cursor.value.value;
+cursor.continue();
 }
-
+};
+tx.oncomplete = () => resolve(settings);
+tx.onerror = () => reject(tx.error);
+});
+}
 const APP_VERSION = '1.0.0';
 const HELP_URL = 'https://discord.gg/vhytdFAwe';
 const PRIVACY_URL = 'https://example.com/privacy';
@@ -202,6 +195,7 @@ let detLongPressTimer = null;
 let detIsLongPress = false;
 let mediaHideTimer = null;
 let editDebounce = null;
+let currentKaraokeMap = [];
 function getColorFromName(name) {
 if (!name) return avatarColors[0];
 let hash = 0;
@@ -226,26 +220,24 @@ navigator.vibrate(pattern);
 }
 }
 function getStorageSize() {
-  // Estimate storage used by notes in memory (text content only; audio blobs are in IndexedDB)
-  let size = 0;
-  state.notes.forEach(note => {
-    const text = JSON.stringify({
-      id: note.id,
-      title: note.title,
-      originalTranscription: note.originalTranscription,
-      editedBody: note.editedBody,
-      tags: note.tags,
-      createdAt: note.createdAt,
-      duration: note.duration,
-      type: note.type,
-      waveformData: note.waveformData,
-      wordTimings: note.wordTimings
-    });
-    size += new Blob([text]).size;
-    // Estimate audio blob size if present
-    if (note.audioBlob) size += note.audioBlob.size || 0;
-  });
-  return size;
+let size = 0;
+state.notes.forEach(note => {
+const text = JSON.stringify({
+id: note.id,
+title: note.title,
+originalTranscription: note.originalTranscription,
+editedBody: note.editedBody,
+tags: note.tags,
+createdAt: note.createdAt,
+duration: note.duration,
+type: note.type,
+waveformData: note.waveformData,
+wordTimings: note.wordTimings
+});
+size += new Blob([text]).size;
+if (note.audioBlob) size += note.audioBlob.size || 0;
+});
+return size;
 }
 function formatBytes(bytes) {
 if (bytes === 0) return '0 Bytes';
@@ -255,74 +247,67 @@ const i = Math.floor(Math.log(bytes) / Math.log(k));
 return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 async function saveState() {
-  const settings = {
-    userName: state.userName,
-    hasOnboarded: state.hasOnboarded,
-    theme: state.theme,
-    currentFilter: state.currentFilter,
-    isUserSignedIn: state.isUserSignedIn,
-    userProfile: state.userProfile,
-    backupEnabled: state.backupEnabled
-  };
-  await saveSettingsToDB(settings);
-  for (const note of state.notes) {
-    await saveNoteToDB(note);
-  }
+const settings = {
+userName: state.userName,
+hasOnboarded: state.hasOnboarded,
+theme: state.theme,
+currentFilter: state.currentFilter,
+isUserSignedIn: state.isUserSignedIn,
+userProfile: state.userProfile,
+backupEnabled: state.backupEnabled
+};
+await saveSettingsToDB(settings);
+for (const note of state.notes) {
+await saveNoteToDB(note);
 }
-
+}
 async function loadState() {
-  try {
-    await openDB();
-    const settings = await loadSettingsFromDB();
-    state.userName = settings.userName || 'there';
-    state.hasOnboarded = settings.hasOnboarded || false;
-    state.theme = settings.theme || 'light';
-    state.currentFilter = settings.currentFilter || 'voice';
-    state.isUserSignedIn = settings.isUserSignedIn || false;
-    state.userProfile = settings.userProfile || { firstName: '', lastName: '', email: '' };
-    state.backupEnabled = settings.backupEnabled !== undefined ? settings.backupEnabled : true;
-    state.notes = await loadAllNotesFromDB();
-  } catch(e) {
-    console.error('Load error:', e);
-  }
+try {
+await openDB();
+const settings = await loadSettingsFromDB();
+state.userName = settings.userName || 'there';
+state.hasOnboarded = settings.hasOnboarded || false;
+state.theme = settings.theme || 'light';
+state.currentFilter = settings.currentFilter || 'voice';
+state.isUserSignedIn = settings.isUserSignedIn || false;
+state.userProfile = settings.userProfile || { firstName: '', lastName: '', email: '' };
+state.backupEnabled = settings.backupEnabled !== undefined ? settings.backupEnabled : true;
+state.notes = await loadAllNotesFromDB();
+} catch(e) {
+console.error('Load error:', e);
+}
 }
 function triggerGoogleSignIn() {
-  try {
-    if (typeof google === 'undefined' || !google.accounts) {
-      showToast('Google Sign In is loading, please try again');
-      return;
-    }
-    google.accounts.id.prompt();
-  } catch(e) {
-    showToast('Google Sign In unavailable');
-    console.error('Google Sign In error:', e);
-  }
+try {
+if (typeof google === 'undefined' || !google.accounts) {
+showToast('Google Sign In is loading, please try again');
+return;
 }
-
+google.accounts.id.prompt();
+} catch(e) {
+showToast('Google Sign In unavailable');
+console.error('Google Sign In error:', e);
+}
+}
 function handleGoogleCredential(response) {
-  const payload = JSON.parse(atob(response.credential.split('.')[1]));
-  
-  // Get name from Google account, fall back to email prefix if no name
-  const fullName = payload.name || payload.email.split('@')[0];
-  const nameParts = fullName.split(' ');
-  
-  // Capitalise first letter of email-derived name
-  const firstName = nameParts[0].charAt(0).toUpperCase() + nameParts[0].slice(1);
-  const lastName = nameParts.slice(1).join(' ') || '';
-
-  state.isUserSignedIn = true;
-  state.userProfile = {
-    firstName: firstName,
-    lastName: lastName,
-    email: payload.email || ''
-  };
-  state.userName = firstName;
-  state.hasOnboarded = true;
-  saveState();
-  renderProfileTrigger();
-  showScreen('screen-home');
-  showToast(`Welcome, ${firstName}!`);
-  haptic([10, 50, 10]);
+const payload = JSON.parse(atob(response.credential.split('.')[1]));
+const fullName = payload.name || payload.email.split('@')[0];
+const nameParts = fullName.split(' ');
+const firstName = nameParts[0].charAt(0).toUpperCase() + nameParts[0].slice(1);
+const lastName = nameParts.slice(1).join(' ') || '';
+state.isUserSignedIn = true;
+state.userProfile = {
+firstName: firstName,
+lastName: lastName,
+email: payload.email || ''
+};
+state.userName = firstName;
+state.hasOnboarded = true;
+saveState();
+renderProfileTrigger();
+showScreen('screen-home');
+showToast(`Welcome, ${firstName}!`);
+haptic([10, 50, 10]);
 }
 function applyTheme(theme, instant = false) {
 document.documentElement.setAttribute('data-theme', theme);
@@ -339,82 +324,70 @@ drawDetailWaveform(progress, note.waveformData, state.detailAudioPlaying, state.
 }, instant ? 0 : 100);
 }
 function toggleTheme() {
-    // Trigger the smooth 400ms crossfade
-    document.documentElement.classList.add('theme-transitioning');
-    
-    state.theme = state.theme === 'light' ? 'dark' : 'light';
-    applyTheme(state.theme, false);
-    saveState();
-    haptic(10);
-    
-    // Remove the class after the animation finishes
-    setTimeout(() => {
-        document.documentElement.classList.remove('theme-transitioning');
-    }, 400);
+document.documentElement.classList.add('theme-transitioning');
+state.theme = state.theme === 'light' ? 'dark' : 'light';
+applyTheme(state.theme, false);
+saveState();
+haptic(10);
+setTimeout(() => {
+document.documentElement.classList.remove('theme-transitioning');
+}, 400);
 }
 function toggleThemeFromSettings(isDark) {
-    // Trigger the smooth 400ms crossfade
-    document.documentElement.classList.add('theme-transitioning');
-    
-    state.theme = isDark ? 'dark' : 'light';
-    applyTheme(state.theme, false);
-    saveState();
-    haptic(10);
-    
-    const profileToggle = document.getElementById('profile-dark-toggle');
-    if (profileToggle && profileToggle.checked !== isDark) {
-        profileToggle.checked = isDark;
-    }
-    
-    // Remove the class after the animation finishes
-    setTimeout(() => {
-        document.documentElement.classList.remove('theme-transitioning');
-    }, 400);
+document.documentElement.classList.add('theme-transitioning');
+state.theme = isDark ? 'dark' : 'light';
+applyTheme(state.theme, false);
+saveState();
+haptic(10);
+const profileToggle = document.getElementById('profile-dark-toggle');
+if (profileToggle && profileToggle.checked !== isDark) {
+profileToggle.checked = isDark;
+}
+setTimeout(() => {
+document.documentElement.classList.remove('theme-transitioning');
+}, 400);
 }
 function toggleBackup(enabled) {
-  state.backupEnabled = enabled;
-  saveState();
-  if (enabled) {
-    showToast('Auto-backup enabled');
-    scheduleBackup();
-  } else {
-    showToast('Auto-backup disabled');
-    if (state.backupInterval) {
-      clearInterval(state.backupInterval);
-      state.backupInterval = null;
-    }
-  }
-  haptic(10);
+state.backupEnabled = enabled;
+saveState();
+if (enabled) {
+showToast('Auto-backup enabled');
+scheduleBackup();
+} else {
+showToast('Auto-backup disabled');
+if (state.backupInterval) {
+clearInterval(state.backupInterval);
+state.backupInterval = null;
 }
-
+}
+haptic(10);
+}
 function scheduleBackup() {
-  if (state.backupInterval) clearInterval(state.backupInterval);
-  // Auto backup every 10 minutes if enabled
-  state.backupInterval = setInterval(() => {
-    if (state.backupEnabled && state.notes.length > 0) {
-      silentBackup();
-    }
-  }, 10 * 60 * 1000);
+if (state.backupInterval) clearInterval(state.backupInterval);
+state.backupInterval = setInterval(() => {
+if (state.backupEnabled && state.notes.length > 0) {
+silentBackup();
 }
-
+}, 10 * 60 * 1000);
+}
 function silentBackup() {
-  try {
-    const data = JSON.stringify({
-      notes: state.notes.map(n => {
-        const c = {...n};
-        delete c.audioFileURL;
-        delete c.audioBlob;
-        return c;
-      }),
-      exportedAt: new Date().toISOString(),
-      version: APP_VERSION
-    });
-    localStorage.setItem('decibel_auto_backup', data);
-    localStorage.setItem('decibel_backup_time', new Date().toISOString());
-    console.log('Auto backup saved at', new Date().toLocaleTimeString());
-  } catch(e) {
-    console.warn('Auto backup failed:', e);
-  }
+try {
+const data = JSON.stringify({
+notes: state.notes.map(n => {
+const c = {...n};
+delete c.audioFileURL;
+delete c.audioBlob;
+return c;
+}),
+exportedAt: new Date().toISOString(),
+version: APP_VERSION
+});
+localStorage.setItem('decibel_auto_backup', data);
+localStorage.setItem('decibel_backup_time', new Date().toISOString());
+console.log('Auto backup saved at', new Date().toLocaleTimeString());
+} catch(e) {
+console.warn('Auto backup failed:', e);
+}
 }
 function showScreen(id, direction = 'forward') {
 if (state.currentScreen === id) return;
@@ -462,7 +435,6 @@ showToast('Profile screen coming soon');
 openHelp();
 }
 }
-
 function handleLogout() {
 closeProfileMenu();
 showModal(
@@ -636,21 +608,20 @@ input.value = '';
 setTimeout(() => input.focus(), 100);
 }
 function saveName() {
-  const raw = document.getElementById('name-input').value.trim();
-  // Capitalise first letter
-  const name = raw.charAt(0).toUpperCase() + raw.slice(1);
-  if (name) {
-    state.userName = name;
-    state.userProfile.firstName = name;
-    state.isUserSignedIn = true;
-    state.userProfile.email = '';
-  }
-  state.hasOnboarded = true;
-  saveState();
-  document.getElementById('name-modal').classList.remove('active');
-  renderProfileTrigger();
-  showScreen('screen-home');
-  haptic([10, 50, 10]);
+const raw = document.getElementById('name-input').value.trim();
+const name = raw.charAt(0).toUpperCase() + raw.slice(1);
+if (name) {
+state.userName = name;
+state.userProfile.firstName = name;
+state.isUserSignedIn = true;
+state.userProfile.email = '';
+}
+state.hasOnboarded = true;
+saveState();
+document.getElementById('name-modal').classList.remove('active');
+renderProfileTrigger();
+showScreen('screen-home');
+haptic([10, 50, 10]);
 }
 const QUESTIONS = [
 "What are you pondering?",
@@ -666,8 +637,8 @@ function renderHome() {
 document.getElementById('home-username').textContent = state.userName;
 const questionEl = document.getElementById('home-question');
 if (!questionEl.dataset.set) {
-  questionEl.textContent = QUESTIONS[Math.floor(Math.random() * QUESTIONS.length)];
-  questionEl.dataset.set = '1';
+questionEl.textContent = QUESTIONS[Math.floor(Math.random() * QUESTIONS.length)];
+questionEl.dataset.set = '1';
 }
 document.getElementById('pill-voice').classList.toggle('active', state.currentFilter === 'voice');
 document.getElementById('pill-written').classList.toggle('active', state.currentFilter === 'written');
@@ -768,7 +739,7 @@ const tile = document.createElement('div');
 tile.className = 'home-tile';
 tile.style.animationDelay = delay + 's';
 const body = note.editedBody || note.originalTranscription || '';
-const cleanBody = body.replace(/\[MALE_\d+\]/g, '').replace(/\[FEMALE_\d+\]/g, '').replace(/\[MUSIC\]/g, '').trim();
+const cleanBody = body.replace(/\[MALE_\d+\]/g, '').replace(/\[FEMALE_\d+\]/g, ' ').replace(/\[MUSIC\]/g, '').trim();
 const wordCount = cleanBody ? cleanBody.split(/\s+/).length : 0;
 const date = new Date(note.createdAt);
 const dd = String(date.getDate()).padStart(2, '0');
@@ -789,8 +760,8 @@ const playPauseBtnHTML = note.type === 'voice' ? `
 ` : `<div class="note-word-count">${wordCount}</div>`;
 let tagsHTML = '';
 if (note.tags && note.tags.length > 0) {
-tagsHTML = '<div style="margin-top: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">' + 
-note.tags.slice(0, 3).map(t => `<span class="home-tag-pill">#${escapeHtml(t)}</span>`).join('') + 
+tagsHTML = '<div style="margin-top: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">' +
+note.tags.slice(0, 3).map(t => `<span class="home-tag-pill">#${escapeHtml(t)}</span>`).join('') +
 '</div>';
 }
 tile.innerHTML = `
@@ -1136,6 +1107,9 @@ if (!this.isRunning) return;
 this.ctx.clearRect(0, 0, this.W, this.H);
 const audioData = this.getFrequencyData();
 const bandValues = this.getBandValues(audioData.freq);
+const overallEnergy = bandValues.reduce((a, b) => a + b, 0) / bandValues.length;
+const screen = document.getElementById('screen-recording');
+if (screen) screen.style.setProperty('--audio-energy', overallEnergy.toFixed(3));
 const maxStretch = 2.8;
 const stiffness = 0.12;
 const damping = 0.68;
@@ -1192,6 +1166,7 @@ state.silenceTimer = setTimeout(() => {
 state.isSilent = true;
 document.getElementById('rec-silence').classList.add('active');
 document.getElementById('recording-canvas').style.display = 'none';
+document.getElementById('screen-recording').classList.add('is-silent');
 }, 800);
 }
 state.unpitchedDuration = 0;
@@ -1201,98 +1176,48 @@ if (state.isSilent) {
 state.isSilent = false;
 document.getElementById('rec-silence').classList.remove('active');
 document.getElementById('recording-canvas').style.display = 'block';
+document.getElementById('screen-recording').classList.remove('is-silent');
 }
 if (pitch > 50 && pitch < 500) {
-    state.currentPitch = pitch;
-    state.recentPitches.push(pitch);
-    if (state.recentPitches.length > 60) state.recentPitches.shift();
+state.currentPitch = pitch;
+state.recentPitches.push(pitch);
+if (state.recentPitches.length > 60) state.recentPitches.shift();
 }
-
-let currentKaraokeMap = [];
-
-function buildKaraokeMap(note) {
-    const container = document.getElementById('det-editable-text');
-    if (!container) return [];
-    
-    const currentText = container.innerText || '';
-    const currentWords = currentText.split(/\s+/).filter(w => w);
-    
-    const originalTimings = note.wordTimings || [];
-    const originalWords = originalTimings.map(t => t.word.toLowerCase().replace(/[.,!?;:]/g, ''));
-    
-    const karaokeMap = [];
-    let origIdx = 0;
-    
-    for (let i = 0; i < currentWords.length; i++) {
-        const cw = currentWords[i].toLowerCase().replace(/[.,!?;:]/g, '');
-        let bestMatch = -1;
-        
-        const searchLimit = Math.min(origIdx + 30, originalWords.length);
-        for (let j = origIdx; j < searchLimit; j++) {
-            if (originalWords[j] === cw) {
-                bestMatch = j;
-                break;
-            }
-        }
-        
-        if (bestMatch !== -1) {
-            karaokeMap.push({
-                start: originalTimings[bestMatch].start,
-                end: originalTimings[bestMatch].end,
-                domWordIndex: i
-            });
-            origIdx = bestMatch + 1;
-        } else {
-            karaokeMap.push({ start: -1, end: -1, domWordIndex: i });
-        }
-    }
-    return karaokeMap;
-}
-// Music detection using spectral spread.
-// Music has energy distributed across many frequency bins at once.
-// Speech concentrates energy in a narrow band.
-// Count how many bins are meaningfully active (above a noise floor).
 let activeBins = 0;
 for (let i = 0; i < bufferLength; i++) { if (dataArray[i] > 30) activeBins++; }
 const spectralSpread = activeBins / bufferLength;
-
-// Also measure spectral flatness — music tends to have energy
-// spread more evenly than a voice, which spikes in narrow bands.
 let sumLog = 0, sumLinear = 0;
 let validBins = 0;
 for (let i = 1; i < bufferLength; i++) {
-    if (dataArray[i] > 0) {
-        sumLog += Math.log(dataArray[i]);
-        sumLinear += dataArray[i];
-        validBins++;
-    }
+if (dataArray[i] > 0) {
+sumLog += Math.log(dataArray[i]);
+sumLinear += dataArray[i];
+validBins++;
+}
 }
 const geometricMean = validBins > 0 ? Math.exp(sumLog / validBins) : 0;
 const arithmeticMean = validBins > 0 ? sumLinear / validBins : 1;
 const spectralFlatness = arithmeticMean > 0 ? geometricMean / arithmeticMean : 0;
-
-// Music signature: wide spectral spread + moderate flatness + not silent
 const looksLikeMusic = spectralSpread > 0.25 && spectralFlatness > 0.08 && maxVal > 40;
-
 if (looksLikeMusic) {
-    state.unpitchedDuration += 1/60;
-    if (state.unpitchedDuration > 1.2 && !state.musicDetected) {
-        state.musicDetected = true;
-        if (state.recognition) {
-    try { state.recognition.stop(); } catch(e) {}
+state.unpitchedDuration += 1/60;
+if (state.unpitchedDuration > 1.2 && !state.musicDetected) {
+state.musicDetected = true;
+if (state.recognition) {
+try { state.recognition.stop(); } catch(e) {}
 }
-        state.finalTranscript += '\n[MUSIC]\n';
-        updateLiveTranscript();
-    }
+state.finalTranscript += '\n[MUSIC]\n';
+updateLiveTranscript();
+}
 } else {
-    state.unpitchedDuration = Math.max(0, state.unpitchedDuration - 1/30);
-    if (state.unpitchedDuration < 0.3 && state.musicDetected) {
-        state.musicDetected = false;
-        state.recentPitches = [];
-        if (state.isRecording && !state.isPaused && state.recognition) {
-            try { state.recognition.start(); } catch(e) {}
-        }
-    }
+state.unpitchedDuration = Math.max(0, state.unpitchedDuration - 1/30);
+if (state.unpitchedDuration < 0.3 && state.musicDetected) {
+state.musicDetected = false;
+state.recentPitches = [];
+if (state.isRecording && !state.isPaused && state.recognition) {
+try { state.recognition.start(); } catch(e) {}
+}
+}
 }
 }
 state.waveformData.push(maxVal / 255);
@@ -1382,16 +1307,14 @@ state.analyser = state.audioContext.createAnalyser();
 state.analyser.fftSize = 2048;
 const source = state.audioContext.createMediaStreamSource(stream);
 source.connect(state.analyser);
-const mimeType = MediaRecorder.isTypeSupported('audio/mp4') 
-  ? 'audio/mp4'
-  : MediaRecorder.isTypeSupported('audio/webm') 
-  ? 'audio/webm' 
-  : '';
-
-state.mediaRecorder = mimeType 
-  ? new MediaRecorder(stream, { mimeType }) 
-  : new MediaRecorder(stream);
-
+const mimeType = MediaRecorder.isTypeSupported('audio/mp4')
+? 'audio/mp4'
+: MediaRecorder.isTypeSupported('audio/webm')
+? 'audio/webm'
+: '';
+state.mediaRecorder = mimeType
+? new MediaRecorder(stream, { mimeType })
+: new MediaRecorder(stream);
 state.currentMimeType = mimeType || 'audio/webm';
 state.audioChunks = [];
 state.mediaRecorder.ondataavailable = (e) => {
@@ -1431,7 +1354,7 @@ el.innerHTML = '<span class="rec-listening">Listening...</span>';
 return;
 }
 let safeFinal = escapeHtml(state.finalTranscript);
-safeFinal = safeFinal.replace(/\[MUSIC\]/g, '<span class="transcript-pill music-pill">Music playing</span>');
+safeFinal = safeFinal.replace(/[MUSIC]/g, '<span class="transcript-pill music-pill">Music playing</span>');
 safeFinal = safeFinal.replace(/\[MALE_(\d+)\]/g, '<span class="transcript-pill male-pill">MALE $1</span>');
 safeFinal = safeFinal.replace(/\[FEMALE_(\d+)\]/g, '<span class="transcript-pill female-pill">FEMALE $1</span>');
 safeFinal = safeFinal.replace(/\n/g, '<br>');
@@ -1496,23 +1419,21 @@ state.mediaRecorder.stop();
 haptic([10, 50, 10]);
 }
 function initSpeechRecognition() {
-  const SR = window.SpeechRecognition || 
-             window.webkitSpeechRecognition || 
-             window.mozSpeechRecognition ||
-             window.msSpeechRecognition;
-
-  if (!SR) {
-    console.warn('Speech recognition not supported on this browser');
-    state.speechSupported = false;
-    return;
-  }
-
-  state.speechSupported = true;
-  state.recognition = new SR();
-  state.recognition.continuous = true;
-  state.recognition.interimResults = true;
-  state.recognition.lang = 'en-US';
-  state.recognition.maxAlternatives = 3;
+const SR = window.SpeechRecognition ||
+window.webkitSpeechRecognition ||
+window.mozSpeechRecognition ||
+window.msSpeechRecognition;
+if (!SR) {
+console.warn('Speech recognition not supported on this browser');
+state.speechSupported = false;
+return;
+}
+state.speechSupported = true;
+state.recognition = new SR();
+state.recognition.continuous = true;
+state.recognition.interimResults = true;
+state.recognition.lang = 'en-US';
+state.recognition.maxAlternatives = 3;
 state.recognition.onresult = (event) => {
 let interim = '';
 let finalAdd = '';
@@ -1598,52 +1519,49 @@ state.interimTranscript = interim;
 updateLiveTranscript();
 };
 state.recognition.onerror = (e) => {
-    console.log('Speech error:', e.error);
-    if (e.error === 'no-speech' || e.error === 'audio-capture') {
-        // Flush any interim text to final before stopping so nothing is lost
-        if (state.interimTranscript && state.interimTranscript.trim()) {
-            const elapsed = getRecordingElapsedTime();
-            const { formatted } = formatTranscriptChunk(state.interimTranscript, elapsed);
-            if (formatted) {
-                const needsSpace = state.finalTranscript.length > 0 &&
-                    !state.finalTranscript.endsWith(' ') &&
-                    !state.finalTranscript.endsWith('\n');
-                state.finalTranscript += (needsSpace ? ' ' : '') + formatted;
-            }
-            state.interimTranscript = '';
-            updateLiveTranscript();
-        }
-        if (state.isRecording && !state.isPaused) {
-            try { state.recognition.stop(); } catch(err) {}
-        }
-    }
+console.log('Speech error:', e.error);
+if (e.error === 'no-speech' || e.error === 'audio-capture') {
+if (state.interimTranscript && state.interimTranscript.trim()) {
+const elapsed = getRecordingElapsedTime();
+const { formatted } = formatTranscriptChunk(state.interimTranscript, elapsed);
+if (formatted) {
+const needsSpace = state.finalTranscript.length > 0 &&
+!state.finalTranscript.endsWith(' ') &&
+!state.finalTranscript.endsWith('\n');
+state.finalTranscript += (needsSpace ? ' ' : '') + formatted;
+}
+state.interimTranscript = '';
+updateLiveTranscript();
+}
+if (state.isRecording && !state.isPaused) {
+try { state.recognition.stop(); } catch(err) {}
+}
+}
 };
 state.recognition.onend = () => {
-    // Flush any buffered interim to final before restarting.
-    // The gap between stop and start drops interim results permanently.
-    if (state.interimTranscript && state.interimTranscript.trim()) {
-        const elapsed = getRecordingElapsedTime();
-        const { formatted } = formatTranscriptChunk(state.interimTranscript, elapsed);
-        if (formatted) {
-            const needsSpace = state.finalTranscript.length > 0 &&
-                !state.finalTranscript.endsWith(' ') &&
-                !state.finalTranscript.endsWith('\n');
-            state.finalTranscript += (needsSpace ? ' ' : '') + formatted;
-        }
-        state.interimTranscript = '';
-        updateLiveTranscript();
-    }
-    if (state.isRecording && !state.isPaused) {
-        try {
-            setTimeout(() => {
-                if (state.isRecording && !state.isPaused) {
-                    state.recognition.start();
-                }
-            }, 150);
-        } catch(e) {
-            console.log('Restart error:', e);
-        }
-    }
+if (state.interimTranscript && state.interimTranscript.trim()) {
+const elapsed = getRecordingElapsedTime();
+const { formatted } = formatTranscriptChunk(state.interimTranscript, elapsed);
+if (formatted) {
+const needsSpace = state.finalTranscript.length > 0 &&
+!state.finalTranscript.endsWith(' ') &&
+!state.finalTranscript.endsWith('\n');
+state.finalTranscript += (needsSpace ? ' ' : '') + formatted;
+}
+state.interimTranscript = '';
+updateLiveTranscript();
+}
+if (state.isRecording && !state.isPaused) {
+try {
+setTimeout(() => {
+if (state.isRecording && !state.isPaused) {
+state.recognition.start();
+}
+}, 150);
+} catch(e) {
+console.log('Restart error:', e);
+}
+}
 };
 state.recognition.onspeechstart = () => {};
 state.recognition.onspeechend = () => {
@@ -1660,12 +1578,9 @@ text = text.replace(/\s+/g, ' ');
 if (text.length > 0) {
 text = text.charAt(0).toUpperCase() + text.slice(1);
 }
-// Don't guess punctuation from keywords — the engine's own confidence
-// about sentence boundaries is more accurate than word-list heuristics,
-// and false positives here corrupt the chunk joining logic.
 if (text.length > 30) {
 text = text.replace(/\s+(and|but|or|so|yet|however|therefore|meanwhile|although|because|since)\s+/gi, (match, conj) => {
-return `, ${conj.toLowerCase()} `;
+return `, ${conj.toLowerCase()}`;
 });
 }
 const introPhrases = /^(however|therefore|meanwhile|furthermore|moreover|additionally|consequently|nevertheless|specifically|for example|for instance|in addition|on the other hand|as a result|in conclusion|to summarize|first|second|third|finally|lastly|next|then|after that|before that)\b/i;
@@ -1880,7 +1795,7 @@ state.audioReactor = null;
 }
 if (state.silenceTimer) clearTimeout(state.silenceTimer);
 if (state.recognition) {
-  try { state.recognition.stop(); } catch(e) {}
+try { state.recognition.stop(); } catch(e) {}
 }
 if (state.mediaRecorder && state.mediaRecorder.state !== 'inactive') state.mediaRecorder.stop();
 if (state.micStream) state.micStream.getTracks().forEach(t => t.stop());
@@ -1889,7 +1804,7 @@ document.getElementById('rec-silence').classList.remove('active');
 document.getElementById('rec-timer').textContent = '00:00';
 document.getElementById('rec-pause-btn').textContent = 'Pause';
 if (wasRecording) {
-  document.getElementById('rec-live-text').innerHTML = '<span class="rec-listening">Listening...</span>';
+document.getElementById('rec-live-text').innerHTML = '<span class="rec-listening">Listening...</span>';
 }
 state.totalPausedDuration = 0;
 state.pausedAt = null;
@@ -1911,78 +1826,66 @@ goBackFromReview();
 }
 }
 async function saveNote() {
-  const title = document.getElementById('rev-title-input').value.trim();
-  const body = document.getElementById('rev-textarea').value;
-  if (!title) { showToast('Please enter a title'); return; }
-  stopReviewAudio();
-  
-  let finalTranscript = (state.finalTranscript + ' ' + state.interimTranscript).trim();
-  let finalBody = body; 
-  
-  if (state.currentReviewBlob) {
-    showToast('Enhancing & syncing audio...');
-    try {
-      const workerUrl = "https://decibel-proxy.mayenmajok29.workers.dev/"; // <-- PASTE YOUR URL HERE
-      const formData = new FormData();
-      const ext = state.currentMimeType && state.currentMimeType.includes('mp4') ? 'mp4' : 'webm';
-      formData.append("file", state.currentReviewBlob, `recording.${ext}`);
-      formData.append("model", "whisper-large-v3-turbo");
-      formData.append("response_format", "verbose_json");
-      formData.append("timestamp_granularities[]", "word");
-
-      const res = await fetch(workerUrl, { method: "POST", body: formData });
-      const data = await res.json();
-
-      if (!data.error && data.text && data.text.trim()) {
-        finalTranscript = data.text.trim();
-        finalBody = finalTranscript; 
-        
-        if (data.words && Array.isArray(data.words)) {
-          // 🚨 THE PUNCTUATION CLEANUP ALGORITHM 🚨
-          // Merges stray punctuation tokens into the previous word's timing
-          const cleanTimings = [];
-          let buffer = null;
-          
-          data.words.forEach(w => {
-            const trimmed = w.word.trim();
-            if (!trimmed) return;
-            const isPunctuation = !/[a-zA-Z0-9\u00C0-\u024F]/.test(trimmed);
-            
-            if (isPunctuation && buffer) {
-              buffer.end = w.end;
-              buffer.word += trimmed;
-            } else {
-              if (buffer) cleanTimings.push(buffer);
-              buffer = { word: trimmed, start: w.start, end: w.end };
-            }
-          });
-          if (buffer) cleanTimings.push(buffer);
-          
-          state.currentReviewWordTimings = cleanTimings;
-        }
-      }
-    } catch (err) { console.warn("Network error, using local draft:", err); }
-  }
-
-  state.notes.unshift({
-    id: 'note_' + Date.now(), title,
-    originalTranscription: finalTranscript,
-    editedBody: finalBody || finalTranscript,
-    audioFileURL: state.currentReviewAudioUrl,
-    audioBlob: state.currentReviewBlob,
-    mimeType: state.currentMimeType || 'audio/webm',
-    waveformData: [...state.waveformData],
-    type: 'voice', media: [], tags: [],
-    createdAt: new Date().toISOString(),
-    duration: state.currentReviewDuration,
-    wordTimings: state.currentReviewWordTimings || []
-  });
-  
-  await saveState();
-  showToast('Note saved');
-  haptic([10, 50, 10]);
-  while (state.navStack.length > 1) state.navStack.pop();
-  showScreen('screen-home');
+const title = document.getElementById('rev-title-input').value.trim();
+const body = document.getElementById('rev-textarea').value;
+if (!title) { showToast('Please enter a title'); return; }
+stopReviewAudio();
+let finalTranscript = (state.finalTranscript + ' ' + state.interimTranscript).trim();
+let finalBody = body;
+if (state.currentReviewBlob) {
+showToast('Enhancing & syncing audio...');
+try {
+const workerUrl = "https://decibel-proxy.mayenmajok29.workers.dev/";
+const formData = new FormData();
+const ext = state.currentMimeType && state.currentMimeType.includes('mp4') ? 'mp4' : 'webm';
+formData.append("file", state.currentReviewBlob, `recording.${ext}`);
+formData.append("model", "whisper-large-v3-turbo");
+formData.append("response_format", "verbose_json");
+formData.append("timestamp_granularities[]", "word");
+const res = await fetch(workerUrl, { method: "POST", body: formData });
+const data = await res.json();
+if (!data.error && data.text && data.text.trim()) {
+finalTranscript = data.text.trim();
+finalBody = finalTranscript;
+if (data.words && Array.isArray(data.words)) {
+const cleanTimings = [];
+let buffer = null;
+data.words.forEach(w => {
+const trimmed = w.word.trim();
+if (!trimmed) return;
+const isPunctuation = !/[a-zA-Z0-9\u00C0-\u024F]/.test(trimmed);
+if (isPunctuation && buffer) {
+buffer.end = w.end;
+buffer.word += trimmed;
+} else {
+if (buffer) cleanTimings.push(buffer);
+buffer = { word: trimmed, start: w.start, end: w.end };
+}
+});
+if (buffer) cleanTimings.push(buffer);
+state.currentReviewWordTimings = cleanTimings;
+}
+}
+} catch (err) { console.warn("Network error, using local draft:", err); }
+}
+state.notes.unshift({
+id: 'note_' + Date.now(), title,
+originalTranscription: finalTranscript,
+editedBody: finalBody || finalTranscript,
+audioFileURL: state.currentReviewAudioUrl,
+audioBlob: state.currentReviewBlob,
+mimeType: state.currentMimeType || 'audio/webm',
+waveformData: [...state.waveformData],
+type: 'voice', media: [], tags: [],
+createdAt: new Date().toISOString(),
+duration: state.currentReviewDuration,
+wordTimings: state.currentReviewWordTimings || []
+});
+await saveState();
+showToast('Note saved');
+haptic([10, 50, 10]);
+while (state.navStack.length > 1) state.navStack.pop();
+showScreen('screen-home');
 }
 function getDetailDuration(note) {
 if (state.detailAudioBuffer && state.detailAudioBuffer.duration > 0) {
@@ -2058,23 +1961,18 @@ const pauseIcon = document.querySelector('.det-pause-icon');
 if (playIcon) playIcon.style.display = 'block';
 if (pauseIcon) pauseIcon.style.display = 'none';
 };
-// ─── REPLACE YOUR audio.onplay BLOCK inside openNoteDetail() ───
-// Find this block and replace it:
 audio.onplay = () => {
-    state.detailAudioPlaying = true;
-    document.getElementById('det-editable-text').classList.add('playing');
-    const playIcon = document.querySelector('.det-play-icon');
-    const pauseIcon = document.querySelector('.det-pause-icon');
-    if (playIcon) playIcon.style.display = 'none';
-    if (pauseIcon) pauseIcon.style.display = 'block';
-    
-    // Rebuild the karaoke map every time playback starts
-    const note = state.notes.find(n => n.id === state.currentNoteId);
-    if (note) {
-        currentKaraokeMap = buildKaraokeMap(note);
-    }
-    
-    startDetailHighlightLoop();
+state.detailAudioPlaying = true;
+document.getElementById('det-editable-text').classList.add('playing');
+const playIcon = document.querySelector('.det-play-icon');
+const pauseIcon = document.querySelector('.det-pause-icon');
+if (playIcon) playIcon.style.display = 'none';
+if (pauseIcon) pauseIcon.style.display = 'block';
+const note = state.notes.find(n => n.id === state.currentNoteId);
+if (note) {
+currentKaraokeMap = buildKaraokeMap(note);
+}
+startDetailHighlightLoop();
 };
 } else {
 audioContainer.style.display = 'none';
@@ -2083,6 +1981,38 @@ const container = document.getElementById('det-editable-text');
 renderDetailText();
 renderDetailTags();
 showScreen('screen-detail');
+}
+function buildKaraokeMap(note) {
+const container = document.getElementById('det-editable-text');
+if (!container) return [];
+const currentText = container.innerText || '';
+const currentWords = currentText.split(/\s+/).filter(w => w);
+const originalTimings = note.wordTimings || [];
+const originalWords = originalTimings.map(t => t.word.toLowerCase().replace(/[.,!?;:]/g, ''));
+const karaokeMap = [];
+let origIdx = 0;
+for (let i = 0; i < currentWords.length; i++) {
+const cw = currentWords[i].toLowerCase().replace(/[.,!?;:]/g, '');
+let bestMatch = -1;
+const searchLimit = Math.min(origIdx + 30, originalWords.length);
+for (let j = origIdx; j < searchLimit; j++) {
+if (originalWords[j] === cw) {
+bestMatch = j;
+break;
+}
+}
+if (bestMatch !== -1) {
+karaokeMap.push({
+start: originalTimings[bestMatch].start,
+end: originalTimings[bestMatch].end,
+domWordIndex: i
+});
+origIdx = bestMatch + 1;
+} else {
+karaokeMap.push({ start: -1, end: -1, domWordIndex: i });
+}
+}
+return karaokeMap;
 }
 function buildWordTiming(note) {
 const duration = getDetailDuration(note);
@@ -2154,275 +2084,230 @@ drawDetailWaveform(Math.min(progress, 1), note.waveformData, false, state.scrubS
 }
 }
 function updateWordHighlight() {
-    const audio = document.getElementById('detail-audio');
-    if (!audio || !currentKaraokeMap.length) return;
-    
-    const currentTime = audio.currentTime;
-    let activeIndex = -1;
-    
-    for (let i = 0; i < currentKaraokeMap.length; i++) {
-        const km = currentKaraokeMap[i];
-        if (km.start <= currentTime && currentTime < km.end) {
-            activeIndex = km.domWordIndex;
-            break;
-        }
-        // Handle micro-pauses between words
-        if (i < currentKaraokeMap.length - 1) {
-            const nextKm = currentKaraokeMap[i+1];
-            if (currentTime >= km.end && currentTime < nextKm.start) {
-                activeIndex = km.domWordIndex;
-                break;
-            }
-        }
-    }
-    
-    if (activeIndex === -1 && currentKaraokeMap.length > 0 && currentTime >= currentKaraokeMap[currentKaraokeMap.length-1].end) {
-        activeIndex = currentKaraokeMap[currentKaraokeMap.length-1].domWordIndex;
-    }
-
-    const container = document.getElementById('det-editable-text');
-    const activeSpan = container.querySelector(`.karaoke-word[data-k-index="${activeIndex}"]`);
-    
-    container.querySelectorAll('.karaoke-word.det-current-word').forEach(el => {
-        el.classList.remove('det-current-word');
-    });
-    
-    if (activeSpan) {
-        activeSpan.classList.add('det-current-word');
-        const rect = activeSpan.getBoundingClientRect();
-        const containerRect = container.getBoundingClientRect();
-        if (rect.top < containerRect.top + 80 || rect.bottom > containerRect.bottom - 80) {
-            activeSpan.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }
-    }
+const audio = document.getElementById('detail-audio');
+if (!audio || !currentKaraokeMap.length) return;
+const currentTime = audio.currentTime;
+let activeIndex = -1;
+for (let i = 0; i < currentKaraokeMap.length; i++) {
+const km = currentKaraokeMap[i];
+if (km.start <= currentTime && currentTime < km.end) {
+activeIndex = km.domWordIndex;
+break;
+}
+if (i < currentKaraokeMap.length - 1) {
+const nextKm = currentKaraokeMap[i+1];
+if (currentTime >= km.end && currentTime < nextKm.start) {
+activeIndex = km.domWordIndex;
+break;
+}
+}
+}
+if (activeIndex === -1 && currentKaraokeMap.length > 0 && currentTime >= currentKaraokeMap[currentKaraokeMap.length-1].end) {
+activeIndex = currentKaraokeMap[currentKaraokeMap.length-1].domWordIndex;
+}
+const container = document.getElementById('det-editable-text');
+const activeSpan = container.querySelector(`.karaoke-word[data-k-index="${activeIndex}"]`);
+container.querySelectorAll('.karaoke-word.det-current-word').forEach(el => {
+el.classList.remove('det-current-word');
+});
+if (activeSpan) {
+activeSpan.classList.add('det-current-word');
+const rect = activeSpan.getBoundingClientRect();
+const containerRect = container.getBoundingClientRect();
+if (rect.top < containerRect.top + 80 || rect.bottom > containerRect.bottom - 80) {
+activeSpan.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+}
 }
 function renderDetailText() {
-    const note = state.notes.find(n => n.id === state.currentNoteId);
-    if (!note) return;
-    const container = document.getElementById('det-editable-text');
-    const originalText = note.originalTranscription || '';
-    const editedText = note.editedBody || originalText;
-    container.innerHTML = '';
-    
-    if (note.type === 'written') {
-        container.textContent = editedText;
-        return;
-    }
-    
-    const diffResult = diffWords(originalText, editedText);
-    let globalWordIndex = 0;
-    
-    diffResult.forEach(part => {
-        const tokens = part.value.split(/(\s+)/);
-        tokens.forEach(token => {
-            if (!token) return;
-            
-            if (/\s+/.test(token)) {
-                if (token.includes('\n')) {
-                    const lines = token.split('\n'); 
-                    lines.forEach((line, i) => {
-                        if (line) container.appendChild(document.createTextNode(line));
-                        if (i < lines.length - 1) container.appendChild(document.createElement('br'));
-                    });
-                } else {
-                    container.appendChild(document.createTextNode(token));
-                }
-                return;
-            }
-            
-            const span = document.createElement('span');
-            span.className = 'karaoke-word ' + (part.added ? 'det-added' : 'det-original');
-            span.setAttribute('data-k-index', globalWordIndex++);
-            span.textContent = token;
-            container.appendChild(span);
-        });
-    });
+const note = state.notes.find(n => n.id === state.currentNoteId);
+if (!note) return;
+const container = document.getElementById('det-editable-text');
+const originalText = note.originalTranscription || '';
+const editedText = note.editedBody || originalText;
+container.innerHTML = '';
+if (note.type === 'written') {
+container.textContent = editedText;
+return;
+}
+const diffResult = diffWords(originalText, editedText);
+let globalWordIndex = 0;
+diffResult.forEach(part => {
+const tokens = part.value.split(/(\s+)/);
+tokens.forEach(token => {
+if (!token) return;
+if (/\s+/.test(token)) {
+if (token.includes('\n')) {
+const lines = token.split('\n');
+lines.forEach((line, i) => {
+if (line) container.appendChild(document.createTextNode(line));
+if (i < lines.length - 1) container.appendChild(document.createElement('br'));
+});
+} else {
+container.appendChild(document.createTextNode(token));
+}
+return;
+}
+const span = document.createElement('span');
+span.className = 'karaoke-word ' + (part.added ? 'det-added' : 'det-original');
+span.setAttribute('data-k-index', globalWordIndex++);
+span.textContent = token;
+container.appendChild(span);
+});
+});
 }
 function getRawTextFromDOM(el) {
-    let raw = '';
-    el.childNodes.forEach((node, index) => {
-        if (node.nodeType === Node.TEXT_NODE) {
-            raw += node.textContent;
-        } else if (node.nodeType === Node.ELEMENT_NODE) {
-            if (node.classList.contains('male-pill')) {
-                const match = node.textContent.match(/MALE\s*(\d+)/i);
-                raw += `[MALE_${match ? match[1] : '1'}]`;
-            } else if (node.classList.contains('female-pill')) {
-                const match = node.textContent.match(/FEMALE\s*(\d+)/i);
-                raw += `[FEMALE_${match ? match[1] : '1'}]`;
-            } else if (node.classList.contains('music-pill')) {
-                raw += `[MUSIC]`;
-            } else if (node.tagName === 'BR') {
-                raw += '\n';
-            } else if (node.tagName === 'DIV' || node.tagName === 'P') {
-                // FIX: Only add a newline if it's NOT the very first element
-                if (index > 0 || raw.length > 0) {
-                    raw += '\n';
-                }
-                raw += getRawTextFromDOM(node);
-            } else {
-                raw += getRawTextFromDOM(node);
-            }
-        }
-    });
-    return raw.replace(/\u200B/g, '');
+let raw = '';
+el.childNodes.forEach((node, index) => {
+if (node.nodeType === Node.TEXT_NODE) {
+raw += node.textContent;
+} else if (node.nodeType === Node.ELEMENT_NODE) {
+if (node.classList.contains('male-pill')) {
+const match = node.textContent.match(/MALE\s*(\d+)/i);
+raw += `[MALE_${match ? match[1] : '1'}]`;
+} else if (node.classList.contains('female-pill')) {
+const match = node.textContent.match(/FEMALE\s*(\d+)/i);
+raw += `[FEMALE_${match ? match[1] : '1'}]`;
+} else if (node.classList.contains('music-pill')) {
+raw += `[MUSIC]`;
+} else if (node.tagName === 'BR') {
+raw += '\n';
+} else if (node.tagName === 'DIV' || node.tagName === 'P') {
+if (index > 0 || raw.length > 0) {
+raw += '\n';
 }
-
+raw += getRawTextFromDOM(node);
+} else {
+raw += getRawTextFromDOM(node);
+}
+}
+});
+return raw.replace(/\u200B/g, '');
+}
 function handleEditInput() {
-    const container = document.getElementById('det-editable-text');
-    
-    // Update word count immediately
-    const rawText = getRawTextFromDOM(container);
-    const cleanText = rawText.replace(/\[MALE_\d+\]/g, '').replace(/\[FEMALE_\d+\]/g, '').replace(/\[MUSIC\]/g, '').replace(/\n/g, ' ');
-    const words = cleanText.trim() ? cleanText.trim().split(/\s+/).length : 0;
-    document.getElementById('det-word-count').textContent = `${words} Words`;
-
-    clearTimeout(editDebounce);
-    editDebounce = setTimeout(() => {
-        const note = state.notes.find(n => n.id === state.currentNoteId);
-        if (!note) return;
-
-        const latestRawText = getRawTextFromDOM(container);
-        note.editedBody = latestRawText;
-
-        if (state.detailAudioPlaying) {
-            document.getElementById('detail-audio').pause();
-        }
-
-        // Do NOT call renderDetailText() here during typing.
-        // That rebuilds the entire DOM and destroys the cursor position.
-        // The visual diff (gray added words vs black original words) will
-        // refresh the next time the note is opened or audio starts playing.
-    }, 300);
+const container = document.getElementById('det-editable-text');
+const rawText = getRawTextFromDOM(container);
+const cleanText = rawText.replace(/\[MALE_\d+\]/g, '').replace(/\[FEMALE_\d+\]/g, '').replace(/\[MUSIC\]/g, '').replace(/\n/g, ' ');
+const words = cleanText.trim() ? cleanText.trim().split(/\s+/).length : 0;
+document.getElementById('det-word-count').textContent = `${words} Words`;
+clearTimeout(editDebounce);
+editDebounce = setTimeout(() => {
+const note = state.notes.find(n => n.id === state.currentNoteId);
+if (!note) return;
+const latestRawText = getRawTextFromDOM(container);
+note.editedBody = latestRawText;
+if (state.detailAudioPlaying) {
+document.getElementById('detail-audio').pause();
+}
+}, 300);
 }
 function getCaretCharacterOffsetWithin(element) {
-    let caretOffset = 0;
-    const sel = window.getSelection();
-    if (sel.rangeCount > 0) {
-        const range = sel.getRangeAt(0);
-        const preCaretRange = range.cloneRange();
-        preCaretRange.selectNodeContents(element);
-        preCaretRange.setEnd(range.endContainer, range.endOffset);
-        
-        // Clone the DOM up to the cursor into a temporary, invisible div
-        const tempDiv = document.createElement('div');
-        tempDiv.appendChild(preCaretRange.cloneContents());
-        
-        // Use your exact same parsing logic to count the characters perfectly!
-        caretOffset = getRawTextFromDOM(tempDiv).length;
-    }
-    return caretOffset;
+let caretOffset = 0;
+const sel = window.getSelection();
+if (sel.rangeCount > 0) {
+const range = sel.getRangeAt(0);
+const preCaretRange = range.cloneRange();
+preCaretRange.selectNodeContents(element);
+preCaretRange.setEnd(range.endContainer, range.endOffset);
+const tempDiv = document.createElement('div');
+tempDiv.appendChild(preCaretRange.cloneContents());
+caretOffset = getRawTextFromDOM(tempDiv).length;
+}
+return caretOffset;
 }
 function setCaretPosition(el, offset) {
-    const range = document.createRange();
-    const sel = window.getSelection();
-    let charCount = 0;
-    let found = false;
-
-    function traverse(node) {
-        if (found) return;
-
-        if (node.nodeType === Node.TEXT_NODE) {
-            if (charCount + node.textContent.length >= offset) {
-                range.setStart(node, offset - charCount);
-                range.collapse(true);
-                found = true;
-                return;
-            }
-            charCount += node.textContent.length;
-        } else if (node.nodeType === Node.ELEMENT_NODE) {
-            if (node.tagName === 'BR') {
-                if (charCount === offset) {
-                    range.setStartAfter(node);
-                    range.collapse(true);
-                    found = true;
-                    return;
-                }
-                charCount += 1; // Matches the \n in getRawTextFromDOM
-            } else if (node.tagName === 'DIV' || node.tagName === 'P') {
-                // Match the exact newline logic from getRawTextFromDOM
-                let isBlockNewline = false;
-                if (node.previousSibling || charCount > 0) {
-                    isBlockNewline = true;
-                }
-                
-                if (isBlockNewline) {
-                    if (charCount === offset) {
-                        range.setStartBefore(node);
-                        range.collapse(true);
-                        found = true;
-                        return;
-                    }
-                    charCount += 1;
-                }
-            }
-            
-            for (let i = 0; i < node.childNodes.length; i++) {
-                traverse(node.childNodes[i]);
-                if (found) return;
-            }
-        }
-    }
-
-    traverse(el);
-
-    if (found) {
-        sel.removeAllRanges();
-        sel.addRange(range);
-    } else {
-        // Fallback: if math slightly misaligns due to browser quirks, put cursor at the end
-        range.selectNodeContents(el);
-        range.collapse(false);
-        sel.removeAllRanges();
-        sel.addRange(range);
-    }
+const range = document.createRange();
+const sel = window.getSelection();
+let charCount = 0;
+let found = false;
+function traverse(node) {
+if (found) return;
+if (node.nodeType === Node.TEXT_NODE) {
+if (charCount + node.textContent.length >= offset) {
+range.setStart(node, offset - charCount);
+range.collapse(true);
+found = true;
+return;
+}
+charCount += node.textContent.length;
+} else if (node.nodeType === Node.ELEMENT_NODE) {
+if (node.tagName === 'BR') {
+if (charCount === offset) {
+range.setStartAfter(node);
+range.collapse(true);
+found = true;
+return;
+}
+charCount += 1;
+} else if (node.tagName === 'DIV' || node.tagName === 'P') {
+let isBlockNewline = false;
+if (node.previousSibling || charCount > 0) {
+isBlockNewline = true;
+}
+if (isBlockNewline) {
+if (charCount === offset) {
+range.setStartBefore(node);
+range.collapse(true);
+found = true;
+return;
+}
+charCount += 1;
+}
+}
+for (let i = 0; i < node.childNodes.length; i++) {
+traverse(node.childNodes[i]);
+if (found) return;
+}
+}
+}
+traverse(el);
+if (found) {
+sel.removeAllRanges();
+sel.addRange(range);
+} else {
+range.selectNodeContents(el);
+range.collapse(false);
+sel.removeAllRanges();
+sel.addRange(range);
+}
 }
 function diffWords(original, edited) {
-    const orig = original.split(/(\s+)/);
-    const edit = edited.split(/(\s+)/);
-    
-    // FIX: Reverse the arrays so the matching algorithm anchors to the BEGINNING 
-    // of the text. This prevents duplicated sentences from turning the original text gray.
-    const origRev = [...orig].reverse();
-    const editRev = [...edit].reverse();
-    
-    const m = origRev.length, n = editRev.length;
-    const dp = Array(m + 1).fill(null).map(() => Array(n + 1).fill(0));
-    
-    for (let i = 1; i <= m; i++) {
-        for (let j = 1; j <= n; j++) {
-            dp[i][j] = origRev[i-1] === editRev[j-1] ? dp[i-1][j-1] + 1 : Math.max(dp[i-1][j], dp[i][j-1]);
-        }
-    }
-    
-    const resultRev = [];
-    let i = m, j = n;
-    while (i > 0 || j > 0) {
-        if (i > 0 && j > 0 && origRev[i-1] === editRev[j-1]) {
-            resultRev.unshift({value: origRev[i-1], added: false, removed: false});
-            i--; j--;
-        } else if (j > 0 && (i === 0 || dp[i][j-1] >= dp[i-1][j])) {
-            resultRev.unshift({value: editRev[j-1], added: true, removed: false});
-            j--;
-        } else if (i > 0) {
-            resultRev.unshift({value: origRev[i-1], added: false, removed: true});
-            i--;
-        }
-    }
-    
-    // FIX: Reverse the result back to normal chronological order
-    const result = resultRev.reverse();
-    
-    const merged = [];
-    result.forEach(part => {
-        const last = merged[merged.length - 1];
-        if (last && last.added === part.added && last.removed === part.removed) {
-            last.value += part.value;
-        } else {
-            merged.push({...part});
-        }
-    });
-    return merged;
+const orig = original.split(/(\s+)/);
+const edit = edited.split(/(\s+)/);
+const origRev = [...orig].reverse();
+const editRev = [...edit].reverse();
+const m = origRev.length, n = editRev.length;
+const dp = Array(m + 1).fill(null).map(() => Array(n + 1).fill(0));
+for (let i = 1; i <= m; i++) {
+for (let j = 1; j <= n; j++) {
+dp[i][j] = origRev[i-1] === editRev[j-1] ? dp[i-1][j-1] + 1 : Math.max(dp[i-1][j], dp[i][j-1]);
+}
+}
+const resultRev = [];
+let i = m, j = n;
+while (i > 0 || j > 0) {
+if (i > 0 && j > 0 && origRev[i-1] === editRev[j-1]) {
+resultRev.unshift({value: origRev[i-1], added: false, removed: false});
+i--; j--;
+} else if (j > 0 && (i === 0 || dp[i][j-1] >= dp[i-1][j])) {
+resultRev.unshift({value: editRev[j-1], added: true, removed: false});
+j--;
+} else if (i > 0) {
+resultRev.unshift({value: origRev[i-1], added: false, removed: true});
+i--;
+}
+}
+const result = resultRev.reverse();
+const merged = [];
+result.forEach(part => {
+const last = merged[merged.length - 1];
+if (last && last.added === part.added && last.removed === part.removed) {
+last.value += part.value;
+} else {
+merged.push({...part});
+}
+});
+return merged;
 }
 function drawDetailWaveform(progress, waveformData, isPlaying, playheadScale = 1) {
 const canvas = document.getElementById('detail-canvas');
@@ -2479,29 +2364,24 @@ ctx.shadowColor = 'transparent';
 ctx.shadowBlur = 0;
 ctx.shadowOffsetY = 0;
 }
-// ─── REPLACE YOUR toggleDetailAudio() FUNCTION ───
 function toggleDetailAudio() {
-    const audio = document.getElementById('detail-audio');
-    if (!audio) return;
-    
-    if (audio.paused) {
-        audio.play().catch(e => console.error('Play failed:', e));
-        state.detailAudioPlaying = true;
-        document.getElementById('det-editable-text').classList.add('playing');
-        
-        // Rebuild the karaoke map every time playback starts
-        const note = state.notes.find(n => n.id === state.currentNoteId);
-        if (note) {
-            currentKaraokeMap = buildKaraokeMap(note);
-        }
-        
-        startDetailHighlightLoop();
-    } else {
-        audio.pause();
-        state.detailAudioPlaying = false;
-        document.getElementById('det-editable-text').classList.remove('playing');
-        stopDetailHighlightLoop();
-    }
+const audio = document.getElementById('detail-audio');
+if (!audio) return;
+if (audio.paused) {
+audio.play().catch(e => console.error('Play failed:', e));
+state.detailAudioPlaying = true;
+document.getElementById('det-editable-text').classList.add('playing');
+const note = state.notes.find(n => n.id === state.currentNoteId);
+if (note) {
+currentKaraokeMap = buildKaraokeMap(note);
+}
+startDetailHighlightLoop();
+} else {
+audio.pause();
+state.detailAudioPlaying = false;
+document.getElementById('det-editable-text').classList.remove('playing');
+stopDetailHighlight();
+}
 }
 function stopDetailAudio() {
 const audio = document.getElementById('detail-audio');
@@ -2566,9 +2446,9 @@ if (!note) return;
 const date = new Date(note.createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 const title = note.title || 'Untitled Note';
 let body = getRawTextFromDOM(document.getElementById('det-editable-text'));
-body = body.replace(/\[MUSIC\]/g, '*[Music Playing]*')
-.replace(/\[MALE_(\d+)\]/g, '*[Male Speaker $1]*')
-.replace(/\[FEMALE_(\d+)\]/g, '*[Female Speaker $1]*')
+body = body.replace(/\[MUSIC\]/g, ' [Music Playing] ')
+.replace(/\[MALE_(\d+)\]/g, ' [Male Speaker $1] ')
+.replace(/\[FEMALE_(\d+)\]/g, ' [Female Speaker $1] ')
 .replace(/\n/g, '\n\n');
 const tags = (note.tags || []).map(t => `#${t}`).join(' ');
 const mdContent = `# ${title}\n\n*${date}*\n${tags ? '\n' + tags + '\n' : ''}\n---\n\n${body}`;
@@ -2617,6 +2497,7 @@ if (!note.tags.includes(tag)) {
 note.tags.push(tag);
 await saveState();
 renderDetailTags();
+haptic([5, 30, 5]);
 }
 }
 async function removeTag(tag) {
@@ -3213,6 +3094,7 @@ function showToast(msg) {
 const toast = document.getElementById('toast');
 toast.textContent = msg;
 toast.classList.add('show');
+setTimeout(() => haptic([10, 40, 10]), 250);
 setTimeout(() => toast.classList.remove('show'), 2200);
 }
 function initScrubbing() {
@@ -3271,15 +3153,47 @@ state.isScrubbingDetail = false;
 detContainer.classList.remove('scrubbing');
 const audio = document.getElementById('detail-audio');
 const note = state.notes.find(n => n.id === state.currentNoteId);
+let snapTarget = -1;
+if (note && note.wordTimings && note.wordTimings.length > 0 && audio) {
+const currentTime = audio.currentTime;
+let minDiff = Infinity;
+const SNAP_THRESHOLD = 0.5;
+for (const wt of note.wordTimings) {
+const diff = Math.abs(currentTime - wt.start);
+if (diff < minDiff && diff < SNAP_THRESHOLD) {
+minDiff = diff;
+snapTarget = wt.start;
+}
+}
+}
 animateScale('detail', () => {
 if (note) {
+if (snapTarget !== -1) {
+const startTime = audio.currentTime;
+const duration = 250;
+const startTs = performance.now();
+function snapFrame(now) {
+const elapsed = now - startTs;
+const t = Math.min(elapsed / duration, 1);
+const eased = 1 - Math.pow(1 - t, 3);
+audio.currentTime = startTime + (snapTarget - startTime) * eased;
+const progress = audio.currentTime / getDetailDuration(note);
+drawDetailWaveform(progress, note.waveformData, false, 1);
+if (t < 1) {
+requestAnimationFrame(snapFrame);
+} else {
+haptic([5, 20, 5]);
+if (detWasPlaying) audio.play().catch(() => {});
+}
+}
+requestAnimationFrame(snapFrame);
+} else {
 const progress = audio.currentTime / getDetailDuration(note);
 drawDetailWaveform(progress, note.waveformData, detWasPlaying, 1);
+if (detWasPlaying) audio.play().catch(() => {});
+}
 }
 });
-if (detWasPlaying && audio) {
-audio.play().catch(() => {});
-}
 }
 detContainer.addEventListener('pointerdown', onDetPointerDown, { passive: false });
 detContainer.addEventListener('touchstart', (e) => {
@@ -3418,9 +3332,40 @@ this.closePath();
 return this;
 };
 }
+function initLiquidPill() {
+const container = document.querySelector('.pill-container');
+if (!container) return;
+const slider = document.createElement('div');
+slider.className = 'pill-slider';
+container.prepend(slider);
+function updateSlider(animate = true) {
+const activeBtn = container.querySelector('.pill-btn.active');
+if (!activeBtn) return;
+const containerRect = container.getBoundingClientRect();
+const btnRect = activeBtn.getBoundingClientRect();
+const offsetX = Math.round(btnRect.left - containerRect.left);
+if (!animate) {
+slider.style.transition = 'none';
+} else {
+slider.style.transition = 'transform 0.4s var(--spring), width 0.4s var(--spring)';
+}
+slider.style.transform = `translateX(${offsetX}px)`;
+slider.style.width = `${Math.round(btnRect.width)}px`;
+slider.style.height = `${Math.round(btnRect.height)}px`;
+slider.style.top = `${Math.round(btnRect.top - containerRect.top)}px`;
+if (!animate) {
+slider.offsetHeight;
+slider.style.transition = 'transform 0.4s var(--spring), width 0.4s var(--spring)';
+}
+}
+requestAnimationFrame(() => updateSlider(false));
+const observer = new MutationObserver(() => updateSlider(true));
+observer.observe(container, { attributes: true, subtree: true, attributeFilter: ['class'] });
+window.addEventListener('resize', () => updateSlider(false));
+}
 async function init() {
-  await loadState();
-  applyTheme(state.theme, true);
+await loadState();
+applyTheme(state.theme, true);
 const onbWave = document.getElementById('onb-waveform');
 for (let i = 0; i < 50; i++) {
 const bar = document.createElement('div');
@@ -3432,6 +3377,7 @@ onbWave.appendChild(bar);
 initSpeechRecognition();
 setupAddButton();
 initScrubbing();
+initLiquidPill();
 document.addEventListener('pointerdown', (e) => {
 if (!e.target.closest('.media-item')) {
 hideAllMediaHandles();
@@ -3487,6 +3433,7 @@ measureAndPositionMenu();
 }
 }, 10);
 });
+detEditText.addEventListener('input', handleEditInput);
 const ctxMenu = document.getElementById('det-context-menu');
 ctxMenu.addEventListener('touchstart', (e) => {
 const editableText = document.getElementById('det-editable-text');
@@ -3530,40 +3477,30 @@ closeProfileMenu(true);
 isHandlingPopstate = false;
 }
 });
-  // Re-enable transitions AFTER the initial screen is instantly painted
-  requestAnimationFrame(() => {
-    document.querySelector('.phone-screen').classList.remove('no-transitions');
-  });
-
-  // Hide splash screen
-  const splash = document.getElementById('splash-screen');
-  if (splash) {
-    setTimeout(() => {
-      splash.style.opacity = '0';
-      setTimeout(() => splash.remove(), 600);
-    }, 1200);
-  }
-
-  // Schedule backup after state is loaded
-  if (state.backupEnabled) scheduleBackup();
-  // Prevent native Android context menu (long-press) globally
-document.addEventListener('contextmenu', (e) => {
-    const target = e.target;
-    // Allow native menu for text inputs and editable text areas
-    if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
-        return;
-    }
-    // Block native menu everywhere else so your custom JS logic can take over
-    e.preventDefault();
+requestAnimationFrame(() => {
+document.querySelector('.phone-screen').classList.remove('no-transitions');
 });
-// Prevent Android's native text selection magnifier
+const splash = document.getElementById('splash-screen');
+if (splash) {
+setTimeout(() => {
+splash.style.opacity = '0';
+setTimeout(() => splash.remove(), 600);
+}, 1200);
+}
+if (state.backupEnabled) scheduleBackup();
+document.addEventListener('contextmenu', (e) => {
+const target = e.target;
+if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+return;
+}
+e.preventDefault();
+});
 document.addEventListener('selectstart', (e) => {
-    const target = e.target;
-    // Allow selection ONLY inside inputs and editable text areas
-    if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
-        return;
-    }
-    e.preventDefault();
+const target = e.target;
+if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+return;
+}
+e.preventDefault();
 });
 }
 init();
