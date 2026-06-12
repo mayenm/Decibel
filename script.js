@@ -1881,25 +1881,34 @@ async function saveNote() {
   
   // --- CLOUDFLARE WORKER INTEGRATION ---
   if (state.currentReviewBlob) {
-    showToast('Enhancing transcript...');
+    showToast('Enhancing & syncing audio...');
     try {
-      const workerUrl = "https://decibel-proxy.mayenmajok29.workers.dev/"; // <-- PASTE YOUR URL HERE
+      const workerUrl = "https://YOUR-WORKER-URL.workers.dev"; // <-- PASTE YOUR URL HERE
       const formData = new FormData();
       const ext = state.currentMimeType && state.currentMimeType.includes('mp4') ? 'mp4' : 'webm';
       formData.append("file", state.currentReviewBlob, `recording.${ext}`);
       formData.append("model", "whisper-large-v3-turbo");
-      formData.append("response_format", "json");
+      
+      // 🚨 KARAOKE MODE: Request exact word-level timestamps 🚨
+      formData.append("response_format", "verbose_json");
+      formData.append("timestamp_granularities[]", "word");
 
       const res = await fetch(workerUrl, { method: "POST", body: formData });
       const data = await res.json();
 
       if (!data.error && data.text && data.text.trim()) {
         finalTranscript = data.text.trim();
-        
-        // 🚨 CRITICAL FIX FOR THE GRAY TEXT & HIGHLIGHT BUG 🚨
-        // Sync the editable body with the AI transcript so the diffing 
-        // algorithm doesn't think the user rewrote the entire note manually!
         finalBody = finalTranscript; 
+        
+        // 🚨 EXTRACT PERFECT AUDIO-SYNCED TIMESTAMPS 🚨
+        if (data.words && Array.isArray(data.words)) {
+          state.currentReviewWordTimings = data.words.map((w, idx) => ({
+            wordIndex: idx,
+            word: w.word.trim(),
+            start: w.start,
+            end: w.end
+          }));
+        }
       }
     } catch (err) { console.warn("Network error, using local draft:", err); }
   }
@@ -1908,7 +1917,7 @@ async function saveNote() {
   state.notes.unshift({
     id: 'note_' + Date.now(), title,
     originalTranscription: finalTranscript,
-    editedBody: finalBody || finalTranscript, // Uses the synced AI text
+    editedBody: finalBody || finalTranscript, 
     audioFileURL: state.currentReviewAudioUrl,
     audioBlob: state.currentReviewBlob,
     mimeType: state.currentMimeType || 'audio/webm',
@@ -1916,7 +1925,7 @@ async function saveNote() {
     type: 'voice', media: [], tags: [],
     createdAt: new Date().toISOString(),
     duration: state.currentReviewDuration,
-    wordTimings: state.currentReviewWordTimings || []
+    wordTimings: state.currentReviewWordTimings || [] // Saves the perfect Groq timings
   });
   
   await saveState();
