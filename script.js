@@ -1871,35 +1871,69 @@ goBackFromReview();
 }
 }
 async function saveNote() {
-const title = document.getElementById('rev-title-input').value.trim();
-const body = document.getElementById('rev-textarea').value;
-if (!title) {
-showToast('Please enter a title');
-return;
-}
-stopReviewAudio();
-const combinedTranscript = (state.finalTranscript + ' ' + state.interimTranscript).trim();
-state.notes.unshift({
-  id: 'note_' + Date.now(),
-  title,
-  originalTranscription: combinedTranscript,
-  editedBody: body,
-  audioFileURL: state.currentReviewAudioUrl,
-  audioBlob: state.currentReviewBlob,
-  mimeType: state.currentMimeType || 'audio/webm',  // ADD THIS LINE
-  waveformData: [...state.waveformData],
-  type: 'voice',
-media: [],
-tags: [],
-createdAt: new Date().toISOString(),
-duration: state.currentReviewDuration,
-wordTimings: state.currentReviewWordTimings || []
-});
-await saveState();
-showToast('Note saved');
-haptic([10, 50, 10]);
-while (state.navStack.length > 1) state.navStack.pop();
-showScreen('screen-home');
+  const title = document.getElementById('rev-title-input').value.trim();
+  const body = document.getElementById('rev-textarea').value;
+  if (!title) {
+    showToast('Please enter a title');
+    return;
+  }
+  stopReviewAudio();
+  
+  // Start with the messy live transcript as a fallback
+  let finalTranscript = (state.finalTranscript + ' ' + state.interimTranscript).trim();
+  
+  // --- CLOUDFLARE WORKER INTEGRATION ---
+  if (state.currentReviewBlob) {
+    showToast('Enhancing transcript...');
+    try {
+      // 👇 PASTE YOUR COPIED CLOUDFLARE WORKER URL HERE 👇
+      const workerUrl = "https://decibel-proxy.mayenmajok29.workers.dev/"; 
+      
+      const formData = new FormData();
+      // Groq needs a filename with a valid extension to parse the blob correctly
+      const ext = state.currentMimeType && state.currentMimeType.includes('mp4') ? 'mp4' : 'webm';
+      formData.append("file", state.currentReviewBlob, `recording.${ext}`);
+      formData.append("model", "whisper-large-v3-turbo");
+      formData.append("response_format", "json");
+
+      const res = await fetch(workerUrl, { method: "POST", body: formData });
+      const data = await res.json();
+
+      // If the AI succeeded, overwrite the messy draft with the perfect transcript
+      if (!data.error && data.text && data.text.trim()) {
+        finalTranscript = data.text.trim();
+        console.log("AI Enhanced Transcript:", finalTranscript);
+      } else {
+        console.warn("AI Fallback used. Reason:", data.message);
+      }
+    } catch (err) {
+      console.warn("Network error, using local draft:", err);
+    }
+  }
+  // -------------------------------------
+
+  state.notes.unshift({
+    id: 'note_' + Date.now(),
+    title,
+    originalTranscription: finalTranscript,
+    editedBody: body || finalTranscript, // Use enhanced transcript if body is empty
+    audioFileURL: state.currentReviewAudioUrl,
+    audioBlob: state.currentReviewBlob,
+    mimeType: state.currentMimeType || 'audio/webm',
+    waveformData: [...state.waveformData],
+    type: 'voice',
+    media: [],
+    tags: [],
+    createdAt: new Date().toISOString(),
+    duration: state.currentReviewDuration,
+    wordTimings: state.currentReviewWordTimings || []
+  });
+  
+  await saveState();
+  showToast('Note saved');
+  haptic([10, 50, 10]);
+  while (state.navStack.length > 1) state.navStack.pop();
+  showScreen('screen-home');
 }
 function getDetailDuration(note) {
 if (state.detailAudioBuffer && state.detailAudioBuffer.duration > 0) {

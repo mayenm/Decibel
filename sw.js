@@ -1,4 +1,4 @@
-const CACHE_NAME = "decibel-v3"; // Changed from v2 to v3
+const CACHE_NAME = "decibel-v5"; // Bumped to v5
 const FILES_TO_CACHE = [
   "/Decibel/",
   "/Decibel/index.html",
