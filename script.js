@@ -1207,7 +1207,48 @@ if (pitch > 50 && pitch < 500) {
     state.recentPitches.push(pitch);
     if (state.recentPitches.length > 60) state.recentPitches.shift();
 }
+let currentKaraokeMap = [];
 
+function buildKaraokeMap(note) {
+    const container = document.getElementById('det-editable-text');
+    if (!container) return [];
+    
+    const currentText = container.innerText || '';
+    const currentWords = currentText.split(/\s+/).filter(w => w);
+    
+    const originalTimings = note.wordTimings || [];
+    const originalWords = originalTimings.map(t => t.word.toLowerCase().replace(/[.,!?;:]/g, ''));
+    
+    const karaokeMap = [];
+    let origIdx = 0;
+    
+    for (let i = 0; i < currentWords.length; i++) {
+        const cw = currentWords[i].toLowerCase().replace(/[.,!?;:]/g, '');
+        let bestMatch = -1;
+        
+        // Search window: look ahead up to 30 words to find the match
+        const searchLimit = Math.min(origIdx + 30, originalWords.length);
+        for (let j = origIdx; j < searchLimit; j++) {
+            if (originalWords[j] === cw) {
+                bestMatch = j;
+                break;
+            }
+        }
+        
+        if (bestMatch !== -1) {
+            karaokeMap.push({
+                start: originalTimings[bestMatch].start,
+                end: originalTimings[bestMatch].end,
+                domWordIndex: i
+            });
+            origIdx = bestMatch + 1;
+        } else {
+            // Word was added by user or changed completely. No audio timing.
+            karaokeMap.push({ start: -1, end: -1, domWordIndex: i });
+        }
+    }
+    return karaokeMap;
+}
 // Music detection using spectral spread.
 // Music has energy distributed across many frequency bins at once.
 // Speech concentrates energy in a narrow band.
@@ -2025,6 +2066,7 @@ const playIcon = document.querySelector('.det-play-icon');
 const pauseIcon = document.querySelector('.det-pause-icon');
 if (playIcon) playIcon.style.display = 'none';
 if (pauseIcon) pauseIcon.style.display = 'block';
+currentKaraokeMap = buildKaraokeMap(note);
 if (!state.wordTiming || state.wordTiming.length === 0) {
 if (note.wordTimings && note.wordTimings.length > 0) {
 state.wordTiming = note.wordTimings.map(t => ({...t}));
@@ -2112,132 +2154,89 @@ drawDetailWaveform(Math.min(progress, 1), note.waveformData, false, state.scrubS
 }
 }
 function updateWordHighlight() {
-  const audio = document.getElementById('detail-audio');
-  const container = document.getElementById('det-editable-text');
-  if (!container || !audio) return;
-  
-  const currentTime = audio.currentTime;
-  const spans = container.querySelectorAll('.det-word.det-original');
-  
-  let activeSpan = null;
-  let closestSpan = null;
-  let minDiff = Infinity;
-  
-  for (let i = 0; i < spans.length; i++) {
-    const span = spans[i];
-    const start = parseFloat(span.getAttribute('data-start'));
-    const end = parseFloat(span.getAttribute('data-end'));
+    const audio = document.getElementById('detail-audio');
+    if (!audio || !currentKaraokeMap.length) return;
     
-    if (currentTime >= start && currentTime < end) {
-      activeSpan = span;
-      break;
+    const currentTime = audio.currentTime;
+    let activeIndex = -1;
+    
+    for (let i = 0; i < currentKaraokeMap.length; i++) {
+        const km = currentKaraokeMap[i];
+        if (km.start <= currentTime && currentTime < km.end) {
+            activeIndex = km.domWordIndex;
+            break;
+        }
+        // Handle micro-pauses between words
+        if (i < currentKaraokeMap.length - 1) {
+            const nextKm = currentKaraokeMap[i+1];
+            if (currentTime >= km.end && currentTime < nextKm.start) {
+                activeIndex = km.domWordIndex;
+                break;
+            }
+        }
     }
     
-    // Fallback: If we are in a micro-pause between words, highlight the closest one
-    const diff = Math.min(Math.abs(currentTime - start), Math.abs(currentTime - end));
-    if (diff < minDiff && currentTime >= start) {
-      minDiff = diff;
-      closestSpan = span;
+    if (activeIndex === -1 && currentKaraokeMap.length > 0 && currentTime >= currentKaraokeMap[currentKaraokeMap.length-1].end) {
+        activeIndex = currentKaraokeMap[currentKaraokeMap.length-1].domWordIndex;
     }
-  }
-  
-  if (!activeSpan && closestSpan) {
-    activeSpan = closestSpan;
-  }
-  
-  container.querySelectorAll('.det-word.det-current-word').forEach(span => {
-    span.classList.remove('det-current-word');
-  });
-  
-  if (activeSpan) {
-    activeSpan.classList.add('det-current-word');
-    const rect = activeSpan.getBoundingClientRect();
-    const containerRect = container.getBoundingClientRect();
-    if (rect.top < containerRect.top + 80 || rect.bottom > containerRect.bottom - 80) {
-      activeSpan.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+    const container = document.getElementById('det-editable-text');
+    const activeSpan = container.querySelector(`.karaoke-word[data-k-index="${activeIndex}"]`);
+    
+    container.querySelectorAll('.karaoke-word.det-current-word').forEach(el => {
+        el.classList.remove('det-current-word');
+    });
+    
+    if (activeSpan) {
+        activeSpan.classList.add('det-current-word');
+        const rect = activeSpan.getBoundingClientRect();
+        const containerRect = container.getBoundingClientRect();
+        if (rect.top < containerRect.top + 80 || rect.bottom > containerRect.bottom - 80) {
+            activeSpan.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
     }
-  }
 }
 function renderDetailText() {
-  const note = state.notes.find(n => n.id === state.currentNoteId);
-  if (!note) return;
-  const container = document.getElementById('det-editable-text');
-  const originalText = note.originalTranscription || '';
-  const editedText = note.editedBody || originalText;
-  container.innerHTML = '';
-  
-  if (note.type === 'written') {
-    container.textContent = editedText;
-    return;
-  }
-  
-  const diffResult = diffWords(originalText, editedText);
-  const wordTimings = state.wordTiming || [];
-  let timingPtr = 0; // Tracks our exact position in the audio timeline
-  
-  diffResult.forEach(part => {
-    const tokens = part.value.split(/(\s+)/);
+    const note = state.notes.find(n => n.id === state.currentNoteId);
+    if (!note) return;
+    const container = document.getElementById('det-editable-text');
+    const originalText = note.originalTranscription || '';
+    const editedText = note.editedBody || originalText;
+    container.innerHTML = '';
     
-    tokens.forEach(token => {
-      if (!token) return;
-      
-      if (/\s+/.test(token)) {
-        if (token.includes('\n')) {
-          const lines = token.split('\n'); 
-          lines.forEach((line, i) => {
-            if (line) container.appendChild(document.createTextNode(line));
-            if (i < lines.length - 1) container.appendChild(document.createElement('br'));
-          });
-        } else {
-          container.appendChild(document.createTextNode(token));
-        }
+    if (note.type === 'written') {
+        container.textContent = editedText;
         return;
-      }
-      
-      const musicMatch = token.match(/^\[MUSIC\]$/);
-      const maleMatch = token.match(/^\[MALE_(\d+)\]$/);
-      const femaleMatch = token.match(/^\[FEMALE_(\d+)\]$/);
-      
-      if (musicMatch || maleMatch || femaleMatch) {
-        const pill = document.createElement('span');
-        pill.className = 'transcript-pill ' + (musicMatch ? 'music-pill' : maleMatch ? 'male-pill' : 'female-pill');
-        pill.contentEditable = 'false';
-        pill.textContent = musicMatch ? 'Music playing' : maleMatch ? `MALE ${maleMatch[1]}` : `FEMALE ${femaleMatch[1]}`;
-        container.appendChild(pill);
-        return;
-      }
-      
-      if (part.removed) {
-        // User deleted this word. Advance timing pointer to skip its audio.
-        if (timingPtr < wordTimings.length) timingPtr++;
-        return;
-      }
-      
-      if (part.added) {
-        // User added this word. Render as plain gray text (no audio sync).
-        container.appendChild(document.createTextNode(token));
-        return;
-      }
-      
-      // ORIGINAL WORD: Map directly to the audio timestamp
-      const span = document.createElement('span');
-      span.className = 'det-word det-original';
-      
-      if (timingPtr < wordTimings.length) {
-        const timing = wordTimings[timingPtr];
-        span.setAttribute('data-start', timing.start);
-        span.setAttribute('data-end', timing.end);
-        timingPtr++;
-      } else {
-        span.setAttribute('data-start', 9999);
-        span.setAttribute('data-end', 9999);
-      }
-      
-      span.textContent = token;
-      container.appendChild(span);
-      container.appendChild(document.createTextNode('\u200B'));
+    }
+    
+    const diffResult = diffWords(originalText, editedText);
+    let globalWordIndex = 0;
+    
+    diffResult.forEach(part => {
+        const tokens = part.value.split(/(\s+)/);
+        tokens.forEach(token => {
+            if (!token) return;
+            
+            if (/\s+/.test(token)) {
+                if (token.includes('\n')) {
+                    const lines = token.split('\n'); 
+                    lines.forEach((line, i) => {
+                        if (line) container.appendChild(document.createTextNode(line));
+                        if (i < lines.length - 1) container.appendChild(document.createElement('br'));
+                    });
+                } else {
+                    container.appendChild(document.createTextNode(token));
+                }
+                return;
+            }
+            
+            const span = document.createElement('span');
+            span.className = 'karaoke-word ' + (part.added ? 'det-added' : 'det-original');
+            span.setAttribute('data-k-index', globalWordIndex++);
+            span.textContent = token;
+            container.appendChild(span);
+        });
     });
-  });
 }
 function getRawTextFromDOM(el) {
     let raw = '';
@@ -2490,6 +2489,7 @@ if (audio.paused) {
 audio.play().catch(e => console.error('Play failed:', e));
 state.detailAudioPlaying = true;
 document.getElementById('det-editable-text').classList.add('playing');
+currentKaraokeMap = buildKaraokeMap(note);
 if (!state.wordTiming || state.wordTiming.length === 0) {
 if (note.wordTimings && note.wordTimings.length > 0) {
 state.wordTiming = note.wordTimings.map(t => ({...t}));
