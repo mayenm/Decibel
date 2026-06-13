@@ -1225,6 +1225,7 @@ html {
 }
 .det-scroll-content {
   position: relative;
+  z-index: 1;
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
@@ -2803,4 +2804,113 @@ input:checked + .ios-switch-slider:before {
   width: 20px;
   height: 20px;
   flex-shrink: 0;
+}
+/* ── Karaoke theme variables ────────────────────────── */
+:root {
+  --karaoke-active:   var(--text-primary);
+  --karaoke-dim:      rgba(0, 0, 0, 0.22);
+  --karaoke-glow:     rgba(0, 0, 0, 0.3);
+}
+[data-theme="dark"] {
+  --karaoke-dim:      rgba(255, 255, 255, 0.22);
+  --karaoke-glow:     rgba(255, 255, 255, 0.5);
+}
+
+/* ── Overlay ─────────────────────────────────────────── */
+.karaoke-overlay {
+  position: absolute;
+  top:    max(60px, env(safe-area-inset-top) + 20px);
+  left:   0;
+  right:  0;
+  bottom: 0;
+  z-index: 10;            /* sits above det-scroll-content (z-index:1) but below det-audio-container (z-index:20) */
+  display: none;
+  background: var(--bg-screen);
+  padding: 0 28px;
+}
+.karaoke-overlay.active {
+  display: block;
+}
+
+/* ── Scrollable viewport with fade masks ─────────────── */
+.karaoke-viewport {
+  width:    100%;
+  height:   100%;
+  overflow: hidden;
+  position: relative;
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    black 15%,
+    black 85%,
+    transparent 100%
+  );
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    black 15%,
+    black 85%,
+    transparent 100%
+  );
+}
+
+/* ── Moving wrapper (gets translateY from physics) ───── */
+.karaoke-wrapper {
+  position:    relative;
+  width:       100%;
+  will-change: transform;
+}
+
+/* ── Sentence line — exact .lyric-line from lyrics_8b ── */
+.karaoke-sentence-line {
+  padding:          14px 0;
+  font-size:        clamp(22px, 5.5vw, 30px);
+  font-weight:      500;
+  text-align:       left;
+  line-height:      1.4;
+  letter-spacing:   -0.02em;
+  color:            var(--karaoke-dim);
+  will-change:      transform, opacity, filter;
+  word-wrap:        break-word;
+  overflow-wrap:    break-word;
+  transform:        scale(0.98);
+  opacity:          0.25;
+  filter:           blur(2px);
+  transition:
+    transform    1.5s cubic-bezier(0.25, 0.1, 0.25, 1),
+    opacity      1s ease,
+    filter       1s ease,
+    font-weight  0.4s ease;
+}
+
+/* ── Active line — exact .lyric-line.active from lyrics_8b */
+.karaoke-sentence-line.active {
+  transform:   scale(1);
+  opacity:     1;
+  filter:      blur(0)
+               drop-shadow(0 0 4px var(--karaoke-glow))
+               drop-shadow(0 0 8px var(--karaoke-glow));
+  font-weight: 700;
+  background: linear-gradient(
+    90deg,
+    var(--karaoke-active) 0%,
+    var(--karaoke-active) calc(var(--progress, 0) * 100% - 8%),
+    var(--karaoke-dim)    calc(var(--progress, 0) * 100% + 8%),
+    var(--karaoke-dim)    100%
+  );
+  -webkit-background-clip: text;
+  background-clip:         text;
+  -webkit-text-fill-color: transparent;
+  transition:
+    transform    1.5s cubic-bezier(0.25, 0.1, 0.25, 1),
+    opacity      1s ease,
+    filter       1s ease,
+    font-weight  0.4s ease;
+}
+
+/* ── Past line — exact .lyric-line.past from lyrics_8b ── */
+.karaoke-sentence-line.past {
+  transform: scale(0.96);
+  opacity:   0.15;
+  filter:    blur(4px);
 }

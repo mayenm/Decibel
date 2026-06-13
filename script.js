@@ -199,8 +199,6 @@ let detLongPressTimer = null;
 let detIsLongPress = false;
 let mediaHideTimer = null;
 let editDebounce = null;
-let currentKaraokeMap = [];
-let _karaokeActiveIdx = -1;
 function getColorFromName(name) {
   if (!name) return avatarColors[0];
   let hash = 0;
@@ -1511,6 +1509,7 @@ function finishRecording() {
       .padStart(2, "0");
     const s = (elapsed % 60).toString().padStart(2, "0");
     const duration = m * 60 + s;
+    state.currentReviewSentenceTimings = [];
     state.currentReviewAudioUrl = audioUrl;
     state.currentReviewBlob = audioBlob;
     state.currentReviewDuration = duration;
@@ -2029,15 +2028,28 @@ async function saveNote() {
       formData.append("model", "whisper-large-v3-turbo");
       formData.append("response_format", "verbose_json");
       formData.append("timestamp_granularities[]", "word");
+      formData.append("timestamp_granularities[]", "segment");
       const res = await fetch(workerUrl, { method: "POST", body: formData });
       const data = await res.json();
       if (!data.error && data.text && data.text.trim()) {
         finalTranscript = data.text.trim();
         finalBody = finalTranscript;
-        if (data.words && Array.isArray(data.words)) {
+        
+        // Extract words from segments if not present at top level (e.g. for Groq)
+        let wordsArray = data.words;
+        if (!wordsArray && data.segments && Array.isArray(data.segments)) {
+          wordsArray = [];
+          data.segments.forEach(seg => {
+            if (seg.words && Array.isArray(seg.words)) {
+              wordsArray.push(...seg.words);
+            }
+          });
+        }
+        
+        if (wordsArray && Array.isArray(wordsArray) && wordsArray.length > 0) {
           const cleanTimings = [];
           let buffer = null;
-          data.words.forEach((w) => {
+          wordsArray.forEach((w) => {
             const trimmed = w.word.trim();
             if (!trimmed) return;
             const isPunctuation = !/[a-zA-Z0-9\u00C0-\u024F]/.test(trimmed);
@@ -2051,6 +2063,12 @@ async function saveNote() {
           });
           if (buffer) cleanTimings.push(buffer);
           state.currentReviewWordTimings = cleanTimings;
+        }
+        
+        if (data.segments && Array.isArray(data.segments) && data.segments.length > 0) {
+          state.currentReviewSentenceTimings = data.segments
+            .map(s => ({ start: s.start, end: s.end, text: s.text.trim() }))
+            .filter(s => s.text);
         }
       }
     } catch (err) {
@@ -2072,6 +2090,7 @@ async function saveNote() {
     createdAt: new Date().toISOString(),
     duration: state.currentReviewDuration,
     wordTimings: state.currentReviewWordTimings || [],
+    sentenceTimings: state.currentReviewSentenceTimings || [],
   });
   await saveState();
   showToast("Note saved");
@@ -2092,6 +2111,7 @@ async function openNoteDetail(id) {
   const note = state.notes.find((n) => n.id === id);
   if (!note) return;
   state.currentNoteId = id;
+  stopKaraokeMode();
   state.detailAudioPlaying = false;
   state.currentWordIndex = -1;
   state.wordTiming = [];
@@ -2142,9 +2162,7 @@ async function openNoteDetail(id) {
       (decodedDuration) => {
         note.decodedDuration = decodedDuration;
         state.detailAudioBuffer = { duration: decodedDuration };
-        if (note.wordTimings && note.wordTimings.length > 0)
-          state.wordTiming = note.wordTimings.map((t) => ({ ...t }));
-        else buildWordTiming(note);
+        state.wordTiming = getEditedWordTimings(note);
         drawDetailWaveform(0, note.waveformData, false, 1);
       },
     );
@@ -2159,25 +2177,32 @@ async function openNoteDetail(id) {
         state.scrubScaleDetail,
       );
     };
-    audio.onended = () => {
-      stopDetailHighlight();
-      drawDetailWaveform(1, note.waveformData, false, 1);
-    };
-    audio.onpause = () => {
-      stopDetailHighlight();
-      const playIcon = document.querySelector(".det-play-icon");
-      const pauseIcon = document.querySelector(".det-pause-icon");
-      if (playIcon) playIcon.style.display = "block";
-      if (pauseIcon) pauseIcon.style.display = "none";
-    };
-    audio.onplay = () => {
-      state.detailAudioPlaying = true;
-      document.getElementById("det-editable-text").classList.add("playing");
-      const playIcon = document.querySelector(".det-play-icon");
-      const pauseIcon = document.querySelector(".det-pause-icon");
-      if (playIcon) playIcon.style.display = "none";
-      if (pauseIcon) pauseIcon.style.display = "block";
-    };
+audio.onended = () => {
+  state.detailAudioPlaying = false;
+  stopKaraokeMode();
+  const playIcon  = document.querySelector(".det-play-icon");
+  const pauseIcon = document.querySelector(".det-pause-icon");
+  if (playIcon)  playIcon.style.display  = "block";
+  if (pauseIcon) pauseIcon.style.display = "none";
+  drawDetailWaveform(1, note.waveformData, false, 1);
+};
+audio.onpause = () => {
+  state.detailAudioPlaying = false;
+  const playIcon  = document.querySelector(".det-play-icon");
+  const pauseIcon = document.querySelector(".det-pause-icon");
+  if (playIcon)  playIcon.style.display  = "block";
+  if (pauseIcon) pauseIcon.style.display = "none";
+  stopKaraokeMode();
+};
+audio.onplay = () => {
+  state.detailAudioPlaying = true;
+  const playIcon  = document.querySelector(".det-play-icon");
+  const pauseIcon = document.querySelector(".det-pause-icon");
+  if (playIcon)  playIcon.style.display  = "none";
+  if (pauseIcon) pauseIcon.style.display = "block";
+  const note = state.notes.find(n => n.id === state.currentNoteId);
+  if (note) startKaraokeMode(note);
+};
   } else {
     audioContainer.style.display = "none";
   }
@@ -2186,74 +2211,9 @@ async function openNoteDetail(id) {
   renderDetailTags();
   showScreen("screen-detail");
 }
-function buildKaraokeMap(note) {
-  const container = document.getElementById("det-editable-text");
-  if (!container) return [];
-  const spans = Array.from(container.querySelectorAll(".karaoke-word"));
-  if (!spans.length) return [];
-
-  // Prefer Whisper word timings; fall back to the uniform timings built by buildWordTiming()
-  const timings =
-    (note.wordTimings && note.wordTimings.length > 0) ? note.wordTimings :
-    (state.wordTiming && state.wordTiming.length > 0) ? state.wordTiming : null;
-
-  const dur = getDetailDuration(note);
-
-  if (!timings) {
-    // No timing data at all — distribute evenly across the audio duration
-    const slot = dur / spans.length;
-    return spans.map((span, i) => ({ span, start: i * slot, end: (i + 1) * slot }));
-  }
-
-  function norm(w) {
-    return (w || "").toLowerCase().replace(/[^a-z0-9\u00c0-\u024f]/g, "");
-  }
-  const tNorm = timings.map(t => norm(t.word));
-
-  const result = [];
-  let tIdx = 0;
-  for (let i = 0; i < spans.length; i++) {
-    const sNorm = norm(spans[i].textContent);
-    if (!sNorm) { result.push({ span: spans[i], start: -1, end: -1 }); continue; }
-    let match = -1;
-    const limit = Math.min(tIdx + 50, tNorm.length);
-    for (let j = tIdx; j < limit; j++) {
-      if (tNorm[j] === sNorm || tNorm[j].startsWith(sNorm) || sNorm.startsWith(tNorm[j])) {
-        match = j; break;
-      }
-    }
-    if (match !== -1) {
-      result.push({ span: spans[i], start: timings[match].start, end: timings[match].end });
-      tIdx = match + 1;
-    } else {
-      result.push({ span: spans[i], start: -1, end: -1 });
-    }
-  }
-
-  // Fill any unmatched words so they never stay stuck at -1
-  interpolateGaps(result, dur);
-  return result;
-}
-function interpolateGaps(map, totalDur) {
-  let i = 0;
-  while (i < map.length) {
-    if (map[i].start !== -1) { i++; continue; }
-    let gEnd = i;
-    while (gEnd + 1 < map.length && map[gEnd + 1].start === -1) gEnd++;
-    const prevT = i > 0 ? map[i - 1].end : 0;
-    const nextT = gEnd + 1 < map.length ? map[gEnd + 1].start : totalDur;
-    const count = gEnd - i + 1;
-    const slot = (nextT - prevT) / count;
-    for (let k = 0; k < count; k++) {
-      map[i + k].start = prevT + k * slot;
-      map[i + k].end   = prevT + (k + 1) * slot;
-    }
-    i = gEnd + 1;
-  }
-}
-function buildWordTiming(note) {
+function buildOriginalWordTimings(note) {
   const duration = getDetailDuration(note);
-  if (!duration || duration <= 0) return;
+  if (!duration || duration <= 0) return [];
   const text = note.originalTranscription || "";
   const cleanText = text
     .replace(/\[MALE_\d+\]/g, "")
@@ -2262,17 +2222,16 @@ function buildWordTiming(note) {
   const tokens = cleanText.split(/(\s+)/);
   const words = tokens.filter((t) => /\S/.test(t));
   if (words.length === 0) {
-    state.wordTiming = [];
-    return;
+    return [];
   }
   const timePerWord = duration / words.length;
-  state.wordTiming = [];
+  const wordTimings = [];
   let currentWordIdx = 0;
   tokens.forEach((token) => {
     if (/\S/.test(token)) {
       const startTime = currentWordIdx * timePerWord;
       const endTime = (currentWordIdx + 1) * timePerWord;
-      state.wordTiming.push({
+      wordTimings.push({
         wordIndex: currentWordIdx,
         word: token,
         start: startTime,
@@ -2281,108 +2240,131 @@ function buildWordTiming(note) {
       currentWordIdx++;
     }
   });
-}
-function startDetailHighlightLoop() {
-  if (state.highlightRafId) cancelAnimationFrame(state.highlightRafId);
-  function tick() {
-    if (!state.detailAudioPlaying) return;
-    const audio = document.getElementById("detail-audio");
-    if (audio.ended) {
-      stopDetailHighlight();
-      return;
-    }
-    updateWordHighlight();
-    const note = state.notes.find((n) => n.id === state.currentNoteId);
-    if (note && !state.isScrubbingDetail) {
-      const dur = getDetailDuration(note);
-      const progress = dur > 0 ? audio.currentTime / dur : 0;
-      drawDetailWaveform(
-        Math.min(progress, 1),
-        note.waveformData,
-        true,
-        state.scrubScaleDetail,
-      );
-    }
-    state.highlightRafId = requestAnimationFrame(tick);
-  }
-  state.highlightRafId = requestAnimationFrame(tick);
-}
-function stopDetailHighlight() {
-  state.detailAudioPlaying = false;
-  const _ed = document.getElementById("det-editable-text");
-  if (_ed) _ed.querySelectorAll(".det-current-word").forEach(el => el.classList.remove("det-current-word"));
-  if (state.highlightRafId) {
-    cancelAnimationFrame(state.highlightRafId);
-    state.highlightRafId = null;
-  }
-  const editable = document.getElementById("det-editable-text");
-  if (editable) editable.classList.remove("playing");
-  const playIcon = document.querySelector(".det-play-icon");
-  const pauseIcon = document.querySelector(".det-pause-icon");
-  if (playIcon) playIcon.style.display = "block";
-  if (pauseIcon) pauseIcon.style.display = "none";
-  const note = state.notes.find((n) => n.id === state.currentNoteId);
-  if (note) {
-    renderDetailText();
-    const audio = document.getElementById("detail-audio");
-    const dur = getDetailDuration(note);
-    const progress = dur > 0 ? audio.currentTime / dur : 0;
-    drawDetailWaveform(
-      Math.min(progress, 1),
-      note.waveformData,
-      false,
-      state.scrubScaleDetail,
-    );
-  }
-}
-function updateWordHighlight() {
-  const audio = document.getElementById("detail-audio");
-  if (!audio || !currentKaraokeMap.length) return;
-  const t = audio.currentTime;
 
-  // Fast path: check if the current word is still active (most common case)
-  if (_karaokeActiveIdx >= 0 && _karaokeActiveIdx < currentKaraokeMap.length) {
-    const cur = currentKaraokeMap[_karaokeActiveIdx];
-    if (t >= cur.start && t < cur.end) return; // nothing changed
-  }
+  // Align to sentence boundaries if present
+  if (note.sentenceTimings && note.sentenceTimings.length > 0) {
+    const segments = note.sentenceTimings;
+    let globalIdx = 0;
+    const totalWords = wordTimings.length;
 
-  // Scan forward from the last known position (handles normal playback)
-  let newIdx = -1;
-  const scanFrom = Math.max(0, _karaokeActiveIdx);
-  for (let i = scanFrom; i < currentKaraokeMap.length; i++) {
-    const e = currentKaraokeMap[i];
-    if (t >= e.start && t < e.end) { newIdx = i; break; }
-    if (i + 1 < currentKaraokeMap.length && t >= e.end && t < currentKaraokeMap[i + 1].start) {
-      newIdx = i; break;
-    }
-  }
+    segments.forEach(seg => {
+      const segWords = seg.text.split(/\s+/).filter(w => w);
+      if (segWords.length === 0) return;
+      const segDur = seg.end - seg.start;
+      const tpw = segDur / segWords.length;
 
-  // Full scan fallback (handles scrubbing backward)
-  if (newIdx === -1) {
-    for (let i = 0; i < currentKaraokeMap.length; i++) {
-      const e = currentKaraokeMap[i];
-      if (t >= e.start && (t < e.end || i === currentKaraokeMap.length - 1)) {
-        newIdx = i; break;
+      for (let i = 0; i < segWords.length && globalIdx < totalWords; i++, globalIdx++) {
+        wordTimings[globalIdx].start = seg.start + i * tpw;
+        wordTimings[globalIdx].end   = seg.start + (i + 1) * tpw;
       }
+    });
+  }
+  return wordTimings;
+}
+
+function getEditedWordTimings(note) {
+  const originalText = (note.originalTranscription || "")
+    .replace(/\[MALE_\d+\]/g, "")
+    .replace(/\[FEMALE_\d+\]/g, "")
+    .replace(/\[MUSIC\]/g, "");
+  const editedText = (note.editedBody || note.originalTranscription || "")
+    .replace(/\[MALE_\d+\]/g, "")
+    .replace(/\[FEMALE_\d+\]/g, "")
+    .replace(/\[MUSIC\]/g, "");
+
+  let origTimings = note.wordTimings;
+  if (!origTimings || origTimings.length === 0) {
+    origTimings = buildOriginalWordTimings(note);
+  }
+
+  if (!origTimings || origTimings.length === 0) return [];
+
+  const diffResult = diffWords(originalText, editedText);
+  const segments = [];
+  let currentOrigWordIdx = 0;
+
+  diffResult.forEach(part => {
+    const partWords = part.value.split(/\s+/).filter(w => w);
+    if (partWords.length === 0) return;
+
+    if (part.removed) {
+      currentOrigWordIdx += partWords.length;
+    } else if (part.added) {
+      segments.push({ type: 'added', words: partWords });
+    } else {
+      partWords.forEach(w => {
+        const origTiming = origTimings[currentOrigWordIdx];
+        segments.push({
+          type: 'unchanged',
+          word: w,
+          start: origTiming ? origTiming.start : null,
+          end: origTiming ? origTiming.end : null
+        });
+        currentOrigWordIdx++;
+      });
+    }
+  });
+
+  const duration = getDetailDuration(note);
+  for (let k = 0; k < segments.length; k++) {
+    if (segments[k].type === 'added') {
+      let precedingTime = 0;
+      for (let p = k - 1; p >= 0; p--) {
+        if (segments[p].type === 'unchanged' && segments[p].end !== null) {
+          precedingTime = segments[p].end;
+          break;
+        }
+      }
+
+      let succeedingTime = duration;
+      for (let s = k + 1; s < segments.length; s++) {
+        if (segments[s].type === 'unchanged' && segments[s].start !== null) {
+          succeedingTime = segments[s].start;
+          break;
+        }
+      }
+
+      if (succeedingTime < precedingTime) {
+        succeedingTime = precedingTime;
+      }
+
+      const addedWords = segments[k].words;
+      const gap = succeedingTime - precedingTime;
+      const tpw = gap / addedWords.length;
+
+      segments[k].timings = addedWords.map((w, idx) => ({
+        word: w,
+        start: precedingTime + idx * tpw,
+        end: precedingTime + (idx + 1) * tpw
+      }));
     }
   }
 
-  if (newIdx === _karaokeActiveIdx) return; // still no change
+  const finalTimings = [];
+  let wordIndex = 0;
+  segments.forEach(seg => {
+    if (seg.type === 'unchanged') {
+      const start = seg.start !== null ? seg.start : (finalTimings[finalTimings.length - 1]?.end || 0);
+      const end = seg.end !== null ? seg.end : start + 0.3;
+      finalTimings.push({
+        wordIndex: wordIndex++,
+        word: seg.word,
+        start: start,
+        end: end
+      });
+    } else if (seg.type === 'added' && seg.timings) {
+      seg.timings.forEach(t => {
+        finalTimings.push({
+          wordIndex: wordIndex++,
+          word: t.word,
+          start: t.start,
+          end: t.end
+        });
+      });
+    }
+  });
 
-  // Only touch the two affected spans — no querySelectorAll
-  if (_karaokeActiveIdx >= 0 && _karaokeActiveIdx < currentKaraokeMap.length)
-    currentKaraokeMap[_karaokeActiveIdx].span.classList.remove("det-current-word");
-
-  if (newIdx >= 0 && newIdx < currentKaraokeMap.length) {
-    const activeSpan = currentKaraokeMap[newIdx].span;
-    activeSpan.classList.add("det-current-word");
-    const rect = activeSpan.getBoundingClientRect();
-    const cRect = document.getElementById("det-editable-text").getBoundingClientRect();
-    if (rect.top < cRect.top + 60 || rect.bottom > cRect.bottom - 60)
-      activeSpan.scrollIntoView({ behavior: "smooth", block: "center" });
-  }
-
-  _karaokeActiveIdx = newIdx;
+  return finalTimings;
 }
 function renderDetailText() {
   const note = state.notes.find((n) => n.id === state.currentNoteId);
@@ -2668,29 +2650,17 @@ function drawDetailWaveform(
 function toggleDetailAudio() {
   const audio = document.getElementById("detail-audio");
   if (!audio) return;
-  if (audio.paused) {
-    state.detailAudioPlaying = true; // must be true before the RAF loop ticks
-    audio.play().catch((e) => console.error("Play failed:", e));
-    const note = state.notes.find((n) => n.id === state.currentNoteId);
-    if (note) currentKaraokeMap = buildKaraokeMap(note);
-    _karaokeActiveIdx = -1;
-    startDetailHighlightLoop();
-  } else {
-    audio.pause(); // onpause → stopDetailHighlight handles cleanup
-  }
+  if (audio.paused) audio.play().catch(e => console.error("Play failed:", e));
+  else              audio.pause();
 }
 function stopDetailAudio() {
   const audio = document.getElementById("detail-audio");
   if (audio && !audio.paused) audio.pause();
   state.detailAudioPlaying = false;
-  state.isScrubbingDetail = false;
-  state.scrubScaleDetail = 1;
-  if (state.highlightRafId) {
-    cancelAnimationFrame(state.highlightRafId);
-    state.highlightRafId = null;
-  }
-  const editable = document.getElementById("det-editable-text");
-  if (editable) editable.classList.remove("playing");
+  state.isScrubbingDetail  = false;
+  state.scrubScaleDetail   = 1;
+  if (state.highlightRafId) { cancelAnimationFrame(state.highlightRafId); state.highlightRafId = null; }
+  stopKaraokeMode();
 }
 async function saveAndGoHome() {
   const note = state.notes.find((n) => n.id === state.currentNoteId);
@@ -3792,6 +3762,699 @@ function initLiquidPill() {
   });
   window.addEventListener("resize", () => update(false));
 }
+/* ═══════════════════════════════════════════════════════════════
+   KARAOKE MODE — sentence-level, exact lyrics_8b scroll + physics
+═══════════════════════════════════════════════════════════════ */
+let _kWrappY    = 0, _kTargY    = 0, _kVel      = 0, _kRawY    = 0;
+let _kLine      = -1, _kInteract = false;
+let _kTouchVel  = 0,  _kLastTY  = 0;
+let _kWheelTO   = null, _kScrollRaf = null, _kHighRaf = null;
+let _kSentences = [];
+const _K_MAX_OVERSCROLL = 120;
+
+function _kVP()   { return document.getElementById("karaoke-viewport"); }
+function _kWrp()  { return document.getElementById("karaoke-wrapper");  }
+
+/* ── Lazy Timing Computation ──────────────────────────────── */
+
+/**
+ * TIER 1: Re-send audio to the proxy for real Whisper timestamps.
+ * Returns { wordTimings, sentenceTimings } or null.
+ */
+async function fetchTimingsFromProxy(note) {
+  try {
+    const audioUrl = note.audioFileURL;
+    if (!audioUrl) return null;
+
+    const audioRes = await fetch(audioUrl);
+    const audioBlob = await audioRes.blob();
+
+    const workerUrl = "https://decibel-proxy.mayenmajok29.workers.dev/";
+    const formData = new FormData();
+    const ext = (audioBlob.type || "").includes("mp4") ? "mp4" : "webm";
+    formData.append("file", audioBlob, `recording.${ext}`);
+    formData.append("model", "whisper-large-v3-turbo");
+    formData.append("response_format", "verbose_json");
+    formData.append("timestamp_granularities[]", "word");
+    formData.append("timestamp_granularities[]", "segment");
+
+    const res = await fetch(workerUrl, { method: "POST", body: formData });
+    const data = await res.json();
+    if (data.error || !data.text) return null;
+
+    const result = { wordTimings: [], sentenceTimings: [] };
+
+    let wordsArray = data.words;
+    if (!wordsArray && data.segments && Array.isArray(data.segments)) {
+      wordsArray = [];
+      data.segments.forEach(seg => {
+        if (seg.words && Array.isArray(seg.words)) wordsArray.push(...seg.words);
+      });
+    }
+    if (wordsArray && wordsArray.length > 0) {
+      let buffer = null;
+      wordsArray.forEach(w => {
+        const trimmed = w.word.trim();
+        if (!trimmed) return;
+        const isPunct = !/[a-zA-Z0-9\u00C0-\u024F]/.test(trimmed);
+        if (isPunct && buffer) { buffer.end = w.end; buffer.word += trimmed; }
+        else { if (buffer) result.wordTimings.push(buffer); buffer = { word: trimmed, start: w.start, end: w.end }; }
+      });
+      if (buffer) result.wordTimings.push(buffer);
+    }
+    if (data.segments && data.segments.length > 0) {
+      result.sentenceTimings = data.segments
+        .map(s => ({ start: s.start, end: s.end, text: s.text.trim() }))
+        .filter(s => s.text);
+    }
+    return (result.wordTimings.length > 0 || result.sentenceTimings.length > 0) ? result : null;
+  } catch (err) {
+    console.warn("fetchTimingsFromProxy failed:", err);
+    return null;
+  }
+}
+
+/**
+ * TIER 2: Use the browser's Web Speech API to recognize speech from
+ * the audio and capture timestamps. Plays the audio at 4x speed
+ * through a hidden path while SpeechRecognition listens. The recognized
+ * result timestamps are mapped to the known transcript sentences.
+ *
+ * Returns sentenceTimings or null.
+ */
+async function alignViaSpeechRecognition(note) {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) return null;
+  if (!note.audioFileURL) return null;
+
+  const text = (note.editedBody || note.originalTranscription || "").trim();
+  if (!text) return null;
+
+  // Split text into sentences
+  let sentences = text.split(/(?<=[.!?])\s+/).filter(s => s.trim());
+  if (sentences.length <= 1) sentences = text.split(/\n+/).filter(s => s.trim());
+  if (sentences.length <= 1) return null; // nothing to align
+
+  return new Promise((resolve) => {
+    const recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = false;
+    recognition.lang = "en-US";
+    recognition.maxAlternatives = 1;
+
+    const resultTimestamps = []; // {time, transcript}
+    const startedAt = Date.now();
+
+    // Create a hidden audio element to play the recording
+    const hiddenAudio = new Audio(note.audioFileURL);
+    hiddenAudio.volume = 0.01; // near-silent so speech recognition can still hear via system audio
+    hiddenAudio.playbackRate = 1.0; // must be 1x for speech recognition to work
+
+    let timeout;
+
+    recognition.onresult = (event) => {
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        if (event.results[i].isFinal) {
+          const elapsed = (Date.now() - startedAt) / 1000;
+          resultTimestamps.push({
+            time: elapsed,
+            transcript: event.results[i][0].transcript.trim()
+          });
+        }
+      }
+    };
+
+    recognition.onend = () => {
+      cleanup();
+    };
+
+    recognition.onerror = () => {
+      cleanup();
+    };
+
+    hiddenAudio.onended = () => {
+      // Give speech recognition a moment to finish processing
+      setTimeout(() => {
+        recognition.stop();
+      }, 500);
+    };
+
+    function cleanup() {
+      clearTimeout(timeout);
+      hiddenAudio.pause();
+      hiddenAudio.src = "";
+
+      if (resultTimestamps.length === 0) {
+        resolve(null);
+        return;
+      }
+
+      // Map recognition results to sentences using word overlap
+      const dur = getDetailDuration(note);
+      const timings = mapRecognitionToSentences(sentences, resultTimestamps, dur);
+      resolve(timings);
+    }
+
+    // Timeout: if audio is longer than 60s, abort
+    const maxDur = (note.duration || 30) + 5;
+    timeout = setTimeout(() => {
+      recognition.stop();
+      hiddenAudio.pause();
+    }, maxDur * 1000);
+
+    // Start listening, then play audio
+    try {
+      recognition.start();
+      hiddenAudio.play().catch(() => {
+        recognition.stop();
+        resolve(null);
+      });
+    } catch (e) {
+      resolve(null);
+    }
+  });
+}
+
+/**
+ * Maps speech recognition results to known transcript sentences
+ * using word overlap matching.
+ */
+function mapRecognitionToSentences(sentences, results, totalDur) {
+  if (results.length === 0) return null;
+
+  // Build a timeline of recognized text with timestamps
+  const timings = [];
+  let sentIdx = 0;
+
+  // For each sentence, find the recognition result that best matches
+  const sentenceWords = sentences.map(s =>
+    s.toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter(w => w)
+  );
+
+  // Accumulate recognition results and match against sentences
+  let recognizedSoFar = "";
+  let lastMatchTime = 0;
+
+  for (const result of results) {
+    recognizedSoFar += " " + result.transcript;
+    const recWords = recognizedSoFar.toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter(w => w);
+
+    // Count how many sentence words we've covered
+    let wordsMatched = 0;
+    for (let si = 0; si <= sentIdx && si < sentenceWords.length; si++) {
+      wordsMatched += sentenceWords[si].length;
+    }
+
+    // If we've recognized enough words to cover the current sentence
+    if (recWords.length >= wordsMatched && sentIdx < sentences.length) {
+      timings.push({
+        start: lastMatchTime,
+        end: result.time,
+        text: sentences[sentIdx].trim()
+      });
+      lastMatchTime = result.time;
+      sentIdx++;
+    }
+  }
+
+  // Handle remaining sentences
+  while (sentIdx < sentences.length) {
+    const remainingCount = sentences.length - sentIdx;
+    const remainingDur = totalDur - lastMatchTime;
+    const perSent = remainingDur / remainingCount;
+    timings.push({
+      start: lastMatchTime,
+      end: lastMatchTime + perSent,
+      text: sentences[sentIdx].trim()
+    });
+    lastMatchTime += perSent;
+    sentIdx++;
+  }
+
+  return timings.length > 0 ? timings : null;
+}
+
+/**
+ * TIER 3: Offline fallback – distribute sentence timings based on
+ * character length (proxy for syllable count), not word count.
+ */
+function computeCharWeightedTimings(note) {
+  const dur = getDetailDuration(note);
+  const text = (note.editedBody || note.originalTranscription || "")
+    .replace(/\[MALE_\d+\]/g, "").replace(/\[FEMALE_\d+\]/g, "")
+    .replace(/\[MUSIC\]/g, "").trim();
+  if (!text) return [];
+
+  let sentences = text.split(/(?<=[.!?])\s+/).filter(s => s.trim());
+  if (sentences.length <= 1) sentences = text.split(/\n+/).filter(s => s.trim());
+  if (sentences.length === 0) sentences = [text];
+
+  const totalChars = sentences.reduce((sum, s) => sum + s.length, 0);
+  if (totalChars === 0) return [{ start: 0, end: dur, text: text }];
+
+  const timings = [];
+  let curStart = 0;
+  sentences.forEach(s => {
+    const fraction = s.length / totalChars;
+    const segDur = fraction * dur;
+    timings.push({ start: curStart, end: curStart + segDur, text: s.trim() });
+    curStart += segDur;
+  });
+  return timings;
+}
+
+/* ── Data ──────────────────────────────────────────────────── */
+function buildSentenceMap(note) {
+  const TARGET_LINE_WORDS = 4; // Fits perfectly on smartphone screen width without wrapping
+
+  // Get word timings from state if we are currently looking at this note, otherwise fallback to note.wordTimings
+  const activeWordTimings = (note.id === state.currentNoteId && state.wordTiming && state.wordTiming.length > 0)
+    ? state.wordTiming
+    : note.wordTimings;
+
+  // 1. BEST SOURCE: Word-level timings (exact sync, split into short lines)
+  if (activeWordTimings && activeWordTimings.length > 0) {
+    const out = [];
+    let curWordObjs = [];
+    let curStart = null;
+
+    activeWordTimings.forEach((w, i) => {
+      if (curStart === null) curStart = w.start;
+      curWordObjs.push({ word: w.word, start: w.start, end: w.end });
+      
+      const next = activeWordTimings[i + 1];
+      const isPunct = /[.!?,;:]$/.test(w.word.trim());
+      const isLongPause = next && (next.start - w.end) > 0.6;
+      const isLast = i === activeWordTimings.length - 1;
+      const isLineFull = curWordObjs.length >= TARGET_LINE_WORDS;
+
+      // Break the line if it's full, hits punctuation, has a long pause, or is the end
+      if ((isLineFull || isPunct || isLongPause || isLast) && curWordObjs.length > 0) {
+        out.push({ start: curStart, end: w.end, text: curWordObjs.map(wo => wo.word).join(" "), words: curWordObjs.slice() });
+        curWordObjs = [];
+        curStart = null;
+      }
+    });
+    if (out.length > 0) return out;
+  }
+
+  // 2. FALLBACK: Stored sentence timings (from audio analysis or Whisper segments)
+  if (note.sentenceTimings && note.sentenceTimings.length > 0) {
+    const out = [];
+    note.sentenceTimings.forEach(seg => {
+      const words = seg.text.split(/\s+/).filter(w => w);
+      if (words.length === 0) return;
+      
+      const timePerWord = (seg.end - seg.start) / words.length;
+      let lineStart = seg.start;
+      let curLine = [];
+      
+      for (let i = 0; i < words.length; i++) {
+        curLine.push(words[i]);
+        const isLast = i === words.length - 1;
+        const isPunct = /[.!?,;:]$/.test(words[i]);
+        
+        if (curLine.length >= TARGET_LINE_WORDS || isPunct || isLast) {
+          const lineEnd = lineStart + curLine.length * timePerWord;
+          out.push({ start: lineStart, end: lineEnd, text: curLine.join(" ") });
+          lineStart = lineEnd;
+          curLine = [];
+        }
+      }
+    });
+    if (out.length > 0) return out;
+  }
+
+  // 3. LAST RESORT: Evenly distribute plain text if no timings exist
+  //    (This path is only hit before async audio analysis completes)
+  const dur  = getDetailDuration(note);
+  const text = (note.editedBody || note.originalTranscription || "")
+    .replace(/\[MALE_\d+\]/g, "").replace(/\[FEMALE_\d+\]/g, "")
+    .replace(/\[MUSIC\]/g, "").trim();
+  
+  if (!text) return [];
+  const words = text.split(/\s+/);
+  const timePerWord = dur / words.length;
+  const out = [];
+  let lineStart = 0;
+  let curLine = [];
+
+  for (let i = 0; i < words.length; i++) {
+    curLine.push(words[i]);
+    if (curLine.length >= TARGET_LINE_WORDS || i === words.length - 1) {
+      const lineEnd = lineStart + curLine.length * timePerWord;
+      out.push({ start: lineStart, end: lineEnd, text: curLine.join(" ") });
+      lineStart = lineEnd;
+      curLine = [];
+    }
+  }
+  return out;
+}
+
+/* ── Scroll helpers (exact port from lyrics_8b) ─────────────── */
+function _kGetCenteredY(index) {
+  const lines = document.querySelectorAll(".karaoke-sentence-line");
+  const vp    = _kVP();
+  if (!lines[index] || !vp || !vp.clientHeight) return 0;
+  const lineTop = lines[index].offsetTop || 0;
+  const lineHeight = lines[index].clientHeight || 0;
+  const centered = (vp.clientHeight / 2) - lineTop - (lineHeight / 2);
+  return isNaN(centered) ? 0 : centered;
+}
+
+function _kGetBounds() {
+  const lines = document.querySelectorAll(".karaoke-sentence-line");
+  const vp    = _kVP();
+  if (!lines.length || !vp || !vp.clientHeight) return { min: 0, max: 0 };
+  const vh   = vp.clientHeight;
+  const firstTop = lines[0].offsetTop || 0;
+  const firstHeight = lines[0].clientHeight || 0;
+  const maxY = (vh / 2) - firstTop - (firstHeight / 2);
+  const last = lines[lines.length - 1];
+  const lastTop = last.offsetTop || 0;
+  const lastHeight = last.clientHeight || 0;
+  const minY = (vh / 2) - lastTop - (lastHeight / 2);
+  if (isNaN(minY) || isNaN(maxY)) return { min: 0, max: 0 };
+  return minY > maxY ? { min: maxY, max: maxY } : { min: minY, max: maxY };
+}
+
+function _kRubberBand(raw, bounds) {
+  const bMin = bounds.min || 0;
+  const bMax = bounds.max || 0;
+  if (raw > bMax) {
+    const excess = raw - bMax;
+    return bMax + _K_MAX_OVERSCROLL * (1 - 1 / (1 + excess / _K_MAX_OVERSCROLL));
+  }
+  if (raw < bMin) {
+    const excess = bMin - raw;
+    return bMin - _K_MAX_OVERSCROLL * (1 - 1 / (1 + excess / _K_MAX_OVERSCROLL));
+  }
+  return raw;
+}
+
+function _kApplyTransform(y, scaleY = 1, originY = "center") {
+  const w = _kWrp();
+  if (w) { w.style.transform = `translateY(${y}px) scaleY(${scaleY})`; w.style.transformOrigin = `center ${originY}`; }
+}
+
+/* ── Highlight helpers ───────────────────────────────────────── */
+function _kUpdateHighlightOnScroll() {
+  const vp = _kVP();
+  if (!vp) return;
+  const center = vp.clientHeight / 2;
+  let closest = null, minDist = Infinity;
+  document.querySelectorAll(".karaoke-sentence-line").forEach(line => {
+    const dist = Math.abs(center - (_kWrappY + line.offsetTop + line.clientHeight / 2));
+    if (dist < minDist) { minDist = dist; closest = line; }
+  });
+  if (!closest) return;
+  const newIdx = parseInt(closest.dataset.index);
+  if (newIdx === _kLine) return;
+  _kLine = newIdx;
+  document.querySelectorAll(".karaoke-sentence-line").forEach((l, i) => {
+    l.classList.remove("active", "past");
+    l.style.removeProperty("--progress");
+    if (i === newIdx)      { l.classList.add("active"); l.style.setProperty("--progress", 0.5); }
+    else if (i < newIdx)  l.classList.add("past");
+  });
+}
+
+function _kUpdateHighlight(currentTime) {
+  if (!_kSentences.length) return;
+
+  // Find active sentence — with anticipation lead-time.
+  // Apple Music transitions to the next line slightly BEFORE the audio
+  // reaches it, creating the perception of perfect sync.
+  const LEAD_TIME = 0.15; // 150ms anticipation
+  const lookAhead = currentTime + LEAD_TIME;
+  let activeIdx = 0;
+  for (let i = 0; i < _kSentences.length; i++) {
+    const start = _kSentences[i].start !== undefined ? _kSentences[i].start : 0;
+    if (lookAhead >= start) activeIdx = i;
+    else break;
+  }
+
+  // Prevent fight-updating and visual glitches during user manual interaction
+  if (_kInteract) return;
+
+  // ALWAYS update visual classes
+  if (activeIdx !== _kLine) {
+    _kLine = activeIdx;
+    document.querySelectorAll(".karaoke-sentence-line").forEach((line, i) => {
+      line.classList.remove("active", "past");
+      line.style.removeProperty("--progress");
+      if (i === activeIdx)     line.classList.add("active");
+      else if (i < activeIdx) line.classList.add("past");
+    });
+  }
+
+  // Drive scroll target (ONLY pause auto-scroll if user is manually touching/scrolling)
+  if (activeIdx >= 0)
+    _kTargY = _kGetCenteredY(activeIdx);
+
+  // Update --progress on active line (word-level precision gradient sweep)
+  if (activeIdx >= 0 && activeIdx < _kSentences.length) {
+    const cur = _kSentences[activeIdx];
+    let progress = 0;
+
+    // Use per-word timing for precise progress if available
+    if (cur.words && cur.words.length > 0) {
+      const words = cur.words;
+      let activeWordIdx = 0;
+      for (let w = 0; w < words.length; w++) {
+        if (currentTime >= words[w].start) activeWordIdx = w;
+        else break;
+      }
+      const aw = words[activeWordIdx];
+      const wordStart = aw.start !== undefined ? aw.start : 0;
+      const wordEnd   = aw.end !== undefined ? aw.end : wordStart + 0.3;
+      const wordDur   = (wordEnd - wordStart) > 0 ? (wordEnd - wordStart) : 0.3;
+      const wordProg  = Math.max(0, Math.min(1, (currentTime - wordStart) / wordDur));
+      // Progress = fraction of completed words + fraction through current word
+      progress = (activeWordIdx + wordProg) / words.length;
+    } else {
+      // Fallback: linear sweep across line duration
+      const curStart = cur.start !== undefined ? cur.start : 0;
+      const curEnd   = cur.end !== undefined ? cur.end : curStart + 2;
+      const duration = (curEnd - curStart) > 0 ? (curEnd - curStart) : 2;
+      progress = (currentTime - curStart) / duration;
+    }
+    progress = Math.max(0, Math.min(1, progress));
+    
+    const el = document.querySelector(".karaoke-sentence-line.active");
+    if (el) el.style.setProperty("--progress", progress.toFixed(4));
+  }
+}
+/* ── Animation loops (exact physics from lyrics_8b) ─────────── */
+function _kScrollFrame() {
+  if (!_kInteract) {
+    const bounds = _kGetBounds();
+    const bMin = bounds.min || 0;
+    const bMax = bounds.max || 0;
+    
+    let displacement = _kTargY - _kWrappY;
+    if (isNaN(displacement)) displacement = 0;
+    
+    let stiffness = 0.08, damping = 0.82;
+    const overTop = Math.max(0, _kWrappY - bMax);
+    const overBot = Math.max(0, bMin - _kWrappY);
+    const totalOver = overTop + overBot;
+    if (totalOver > 0) {
+      stiffness = 0.15 + totalOver * 0.002;
+      damping   = 0.82;
+      displacement = overTop > 0 ? bMax - _kWrappY : bMin - _kWrappY;
+    }
+    _kVel    = (_kVel + displacement * stiffness) * damping;
+    if (isNaN(_kVel)) _kVel = 0;
+    
+    _kWrappY += _kVel;
+    _kRawY   = _kWrappY;
+    if (Math.abs(_kVel) < 0.05 && Math.abs(displacement) < 0.1) {
+      _kWrappY = _kTargY; _kRawY = _kTargY; _kVel = 0;
+    }
+    let scaleY = 1, originY = "center";
+    if (_kWrappY > bMax) { scaleY = 1 + Math.min((_kWrappY - bMax) / 200, 0.025); originY = "top";    }
+    else if (_kWrappY < bMin) { scaleY = 1 + Math.min((bMin - _kWrappY) / 200, 0.025); originY = "bottom"; }
+    _kApplyTransform(_kWrappY, scaleY, originY);
+  }
+  _kScrollRaf = requestAnimationFrame(_kScrollFrame);
+}
+
+function _kHighlightFrame() {
+  const audio = document.getElementById("detail-audio");
+  if (!audio || audio.paused) { _kHighRaf = null; return; }
+  _kUpdateHighlight(audio.currentTime);
+  _kHighRaf = requestAnimationFrame(_kHighlightFrame);
+}
+
+/* ── Snap to nearest line on interaction end ─────────────────── */
+function _kSnapToClosest(evalY) {
+  const vp     = _kVP();
+  const lines  = document.querySelectorAll(".karaoke-sentence-line");
+  const bounds = _kGetBounds();
+  if (!vp || !lines.length) return;
+  const clampedEval = Math.max(bounds.min, Math.min(bounds.max, evalY));
+  let closestIdx = 0, minDist = Infinity;
+  lines.forEach(line => {
+    const dist = Math.abs(vp.clientHeight / 2 - (clampedEval + line.offsetTop + line.clientHeight / 2));
+    if (dist < minDist) { minDist = dist; closestIdx = parseInt(line.dataset.index); }
+  });
+  _kTargY    = Math.max(bounds.min, Math.min(bounds.max, _kGetCenteredY(closestIdx)));
+  _kInteract = false;
+  _kVel      = 0;
+  const audio = document.getElementById("detail-audio");
+  const t = parseFloat(lines[closestIdx] ? lines[closestIdx].dataset.time : 0);
+  if (audio && !isNaN(t)) audio.currentTime = t;
+}
+
+/* ── Touch & wheel handlers (exact port from lyrics_8b) ─────── */
+function initKaraokeTouchHandlers() {
+  const vp = _kVP();
+  if (!vp) return;
+
+  vp.addEventListener("touchstart", e => {
+    _kInteract  = true;
+    _kVel       = 0;
+    _kTouchVel  = 0;
+    _kLastTY    = e.touches[0].clientY;
+    _kRawY      = _kWrappY;
+  }, { passive: true });
+
+  vp.addEventListener("touchmove", e => {
+    if (!_kInteract) return;
+    e.preventDefault();
+    const dy  = e.touches[0].clientY - _kLastTY;
+    _kLastTY  = e.touches[0].clientY;
+    _kRawY   += dy;
+    const bounds = _kGetBounds();
+    _kWrappY  = _kRubberBand(_kRawY, bounds);
+    let scaleY = 1, originY = "center";
+    if (_kWrappY > bounds.max) { scaleY = 1 + Math.min((_kWrappY - bounds.max) / 200, 0.025); originY = "top";    }
+    else if (_kWrappY < bounds.min) { scaleY = 1 + Math.min((bounds.min - _kWrappY) / 200, 0.025); originY = "bottom"; }
+    _kApplyTransform(_kWrappY, scaleY, originY);
+    _kTouchVel = dy;
+    _kUpdateHighlightOnScroll();
+  }, { passive: false });
+
+  vp.addEventListener("touchend", () => {
+    const projected = _kWrappY + _kTouchVel * 5;
+    _kSnapToClosest(projected);
+  }, { passive: true });
+
+  vp.addEventListener("wheel", e => {
+    e.preventDefault();
+    if (!_kInteract) _kRawY = _kWrappY;
+    _kInteract = true;
+    _kVel      = 0;
+    _kRawY    -= e.deltaY;
+    const bounds = _kGetBounds();
+    _kWrappY   = _kRubberBand(_kRawY, bounds);
+    let scaleY = 1, originY = "center";
+    if (_kWrappY > bounds.max) { scaleY = 1 + Math.min((_kWrappY - bounds.max) / 200, 0.025); originY = "top";    }
+    else if (_kWrappY < bounds.min) { scaleY = 1 + Math.min((bounds.min - _kWrappY) / 200, 0.025); originY = "bottom"; }
+    _kApplyTransform(_kWrappY, scaleY, originY);
+    _kUpdateHighlightOnScroll();
+    clearTimeout(_kWheelTO);
+    const isOut = _kWrappY > bounds.max || _kWrappY < bounds.min;
+    _kWheelTO   = setTimeout(() => _kSnapToClosest(_kWrappY), isOut ? 0 : 100);
+  }, { passive: false });
+}
+
+/* ── Start / Stop ────────────────────────────────────────────── */
+async function startKaraokeMode(note) {
+  state.wordTiming = getEditedWordTimings(note);
+
+  // ── Lazy timing computation ──────────────────────────────────
+  // If the note lacks word/sentence timings, or has stale timings from
+  // a previous algorithm version, recompute them immediately and
+  // try to get better timings from the proxy in the background.
+  const TIMING_VERSION = 2;
+  const hasWordTimings = note.wordTimings && note.wordTimings.length > 0;
+  const hasSentTimings = note.sentenceTimings && note.sentenceTimings.length > 0;
+  const isStale = (note._timingVersion || 0) < TIMING_VERSION;
+
+  // Clear stale timings from old algorithms (energy analysis, hardcoded, etc.)
+  if (isStale && hasSentTimings && !hasWordTimings) {
+    note.sentenceTimings = [];
+  }
+
+  const needsTimings = (!hasWordTimings && !(hasSentTimings && !isStale)) && note.audioFileURL;
+  if (needsTimings) {
+    // INSTANT: Use character-weighted distribution NOW (no waiting)
+    const fallback = computeCharWeightedTimings(note);
+    if (fallback.length > 0) {
+      note.sentenceTimings = fallback;
+      note._timingVersion = TIMING_VERSION;
+    }
+
+    // BACKGROUND: Try to get real Whisper timestamps from the proxy
+    // (will work after the worker is updated to return them).
+    // Results are saved for the NEXT playback — no re-render mid-play.
+    fetchTimingsFromProxy(note).then(proxyResult => {
+      if (proxyResult) {
+        if (proxyResult.wordTimings.length > 0) {
+          note.wordTimings = proxyResult.wordTimings;
+        }
+        if (proxyResult.sentenceTimings.length > 0) {
+          note.sentenceTimings = proxyResult.sentenceTimings;
+        }
+        note._timingVersion = TIMING_VERSION + 1; // mark as having real data
+        saveState();
+      }
+    }).catch(() => {}); // silently ignore failures
+  }
+
+  _kSentences = buildSentenceMap(note);
+  if (!_kSentences.length) return;
+
+  // Guard: if user paused while we were analysing, don't show overlay
+  const audioCheck = document.getElementById("detail-audio");
+  if (audioCheck && audioCheck.paused) return;
+
+  // Reset physics state
+  _kWrappY = 0; _kTargY = 0; _kVel = 0; _kRawY = 0; _kLine = -1; _kInteract = false;
+
+  // Build sentence divs
+  const vp = _kVP();
+  if (!vp) return;
+  vp.innerHTML = "";
+  const wrapper = document.createElement("div");
+  wrapper.className = "karaoke-wrapper";
+  wrapper.id        = "karaoke-wrapper";
+  _kSentences.forEach((s, i) => {
+    const div = document.createElement("div");
+    div.className       = "karaoke-sentence-line";
+    div.dataset.index   = i;
+    div.dataset.time    = s.start;
+    div.textContent     = s.text;
+    wrapper.appendChild(div);
+  });
+  vp.appendChild(wrapper);
+
+  // Show overlay
+  document.getElementById("karaoke-overlay").classList.add("active");
+
+  // Start scroll physics loop
+  if (_kScrollRaf) cancelAnimationFrame(_kScrollRaf);
+  _kScrollRaf = requestAnimationFrame(_kScrollFrame);
+
+  // Sync to current audio position immediately
+  const audio = document.getElementById("detail-audio");
+  if (audio) _kUpdateHighlight(audio.currentTime);
+
+  // Start highlight RAF
+  if (_kHighRaf) cancelAnimationFrame(_kHighRaf);
+  _kHighRaf = requestAnimationFrame(_kHighlightFrame);
+}
+
+function stopKaraokeMode() {
+  if (_kScrollRaf)  { cancelAnimationFrame(_kScrollRaf); _kScrollRaf = null; }
+  if (_kHighRaf)    { cancelAnimationFrame(_kHighRaf);   _kHighRaf   = null; }
+  if (_kWheelTO)    { clearTimeout(_kWheelTO);           _kWheelTO   = null; }
+  const overlay = document.getElementById("karaoke-overlay");
+  if (overlay) overlay.classList.remove("active");
+  _kLine = -1; _kInteract = false;
+}
 async function init() {
   await loadState();
   applyTheme(state.theme, true);
@@ -3807,6 +4470,7 @@ async function init() {
   setupAddButton();
   initScrubbing();
   initLiquidPill();
+  initKaraokeTouchHandlers();
   document
     .querySelectorAll(".add-btn, .rec-pause-btn, .pill-btn")
     .forEach((btn) => {
