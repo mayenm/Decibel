@@ -7,84 +7,121 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#0A0A0A" media="(prefers-color-scheme: dark)">
-<link href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700,900&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 <link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-512.png">
 <script src="https://accounts.google.com/gsi/client" async defer></script>
-<title>Voice Note App</title>
+<title>Decibel</title>
 </head>
 <body>
-<div id="splash-screen" style="
-  position: fixed;
-  top: 0; left: 0; right: 0; bottom: 0;
-  background: #000;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  z-index: 99999;
-  transition: opacity 0.6s ease;
-">
-  <div style="
-    color: #fff;
-    font-size: 42px;
-    font-weight: 800;
-    letter-spacing: -1px;
-    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-  ">TALK</div>
-  <div style="
-    color: #8A8A8A;
-    font-size: 13px;
-    font-weight: 600;
-    letter-spacing: 3px;
-    margin-top: 8px;
-    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-  ">TRANSCRIBE</div>
+<div id="splash-screen" class="splash-screen">
+  <div class="splash-icon">
+    <svg viewBox="0 0 48 48" fill="none">
+      <rect x="8" y="18" width="4" height="12" rx="2" fill="url(#splash-grad)"><animate attributeName="height" values="12;20;12" dur="1s" repeatCount="indefinite"/><animate attributeName="y" values="18;14;18" dur="1s" repeatCount="indefinite"/></rect>
+      <rect x="16" y="12" width="4" height="24" rx="2" fill="url(#splash-grad)"><animate attributeName="height" values="24;14;24" dur="1.2s" repeatCount="indefinite"/><animate attributeName="y" values="12;17;12" dur="1.2s" repeatCount="indefinite"/></rect>
+      <rect x="24" y="8" width="4" height="32" rx="2" fill="url(#splash-grad)"><animate attributeName="height" values="32;18;32" dur="0.8s" repeatCount="indefinite"/><animate attributeName="y" values="8;15;8" dur="0.8s" repeatCount="indefinite"/></rect>
+      <rect x="32" y="14" width="4" height="20" rx="2" fill="url(#splash-grad)"><animate attributeName="height" values="20;28;20" dur="1.1s" repeatCount="indefinite"/><animate attributeName="y" values="14;10;14" dur="1.1s" repeatCount="indefinite"/></rect>
+      <defs><linearGradient id="splash-grad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#FF4444"/><stop offset="100%" stop-color="#FF8844"/></linearGradient></defs>
+    </svg>
+  </div>
+  <div class="splash-title">Decibel</div>
+  <div class="splash-subtitle">Record · Transcribe · Create</div>
+  <div class="splash-progress"><div class="splash-progress-fill"></div></div>
 </div>
 <div id="screen-onboarding" class="screen">
-<div class="onb-top-left">TALK</div>
-<div class="onb-center">
-<div class="onb-label-center">TRANSCRIBE</div>
-<div class="onb-waveform-decor" id="onb-waveform"></div>
-<div class="onb-label-row">
-<div class="onb-label-bottom">EASY</div>
-<div class="onb-label-bottom">FAST</div>
-</div>
-</div>
-<div class="onb-bottom-block">
-<div class="onb-big-white">Recording</div>
-<div class="onb-big-grey">Editing</div>
-</div>
-<div class="onb-cta" onclick="openNameModal()">
-<div class="onb-cta-text">Start</div>
-<div class="onb-red-circle">
-<svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
-</div>
-</div>
-<div class="auth-buttons">
-  <button class="auth-btn auth-btn-apple" onclick="openNameModal()">
-    <svg class="auth-icon" viewBox="0 0 24 24" fill="currentColor">
-      <path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 16.9 3.1 11.55 7.25 8.8c1.65-.98 3.87-.88 5.03.13 1.28-1.13 3.56-1.18 5.03-.13 4.15 2.75 4.46 8.1 1.55 11.48zM12.03 8.5c-.13-3.5 2.83-6.48 6.02-6.5.42 3.86-3.48 6.6-6.02 6.5z"/>
-    </svg>
-    <span class="auth-text">Continue as Guest</span>
-  </button>
-  <div id="g_id_onload"
-    data-client_id="318168751322-jlsgiov3bm7tlnls9iko69igeb3tv8sm.apps.googleusercontent.com"
-    data-callback="handleGoogleCredential"
-    data-auto_prompt="false">
+<div class="onb-container">
+  <!-- Page 1: Capture -->
+  <div class="onb-page active" data-page="0">
+    <div class="onb-page-content">
+      <div class="onb-illustration">
+        <svg viewBox="0 0 120 120" fill="none">
+          <circle cx="60" cy="60" r="50" fill="rgba(255,68,68,0.08)" />
+          <circle cx="60" cy="60" r="35" fill="rgba(255,68,68,0.12)" />
+          <path d="M60 35a8 8 0 0 0-8 8v18a8 8 0 0 0 16 0V43a8 8 0 0 0-8-8z" fill="url(#onb-grad1)"/>
+          <path d="M76 58v4a16 16 0 0 1-32 0v-4" stroke="#FF6644" stroke-width="3" stroke-linecap="round"/>
+          <line x1="60" y1="78" x2="60" y2="85" stroke="#FF6644" stroke-width="3" stroke-linecap="round"/>
+          <defs><linearGradient id="onb-grad1" x1="52" y1="35" x2="68" y2="65"><stop stop-color="#FF4444"/><stop offset="1" stop-color="#FF8844"/></linearGradient></defs>
+        </svg>
+      </div>
+      <div class="onb-heading">Capture Your Voice</div>
+      <div class="onb-desc">Record your thoughts, ideas, and conversations with a single tap. Your voice, preserved perfectly.</div>
+    </div>
   </div>
-  <button class="auth-btn auth-btn-google" onclick="triggerGoogleSignIn()">
-    <span class="spinner"></span>
-    <svg class="auth-icon" viewBox="0 0 24 24">
-      <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.01z" fill="#4285F4"/>
-      <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-      <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
-      <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
-    </svg>
-    <span class="auth-text">Continue with Google</span>
+  <!-- Page 2: Transform -->
+  <div class="onb-page" data-page="1">
+    <div class="onb-page-content">
+      <div class="onb-illustration">
+        <svg viewBox="0 0 120 120" fill="none">
+          <circle cx="60" cy="60" r="50" fill="rgba(52,168,83,0.08)" />
+          <rect x="30" y="35" width="60" height="50" rx="8" fill="rgba(52,168,83,0.12)" />
+          <line x1="40" y1="50" x2="80" y2="50" stroke="#34A853" stroke-width="2.5" stroke-linecap="round" opacity="0.5"/>
+          <line x1="40" y1="58" x2="72" y2="58" stroke="#34A853" stroke-width="2.5" stroke-linecap="round" opacity="0.7"/>
+          <line x1="40" y1="66" x2="76" y2="66" stroke="#34A853" stroke-width="2.5" stroke-linecap="round"/>
+          <line x1="40" y1="74" x2="60" y2="74" stroke="#34A853" stroke-width="2.5" stroke-linecap="round"/>
+          <circle cx="85" cy="40" r="14" fill="url(#onb-grad2)"/>
+          <path d="M80 40l3 3 6-6" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+          <defs><linearGradient id="onb-grad2" x1="71" y1="26" x2="99" y2="54"><stop stop-color="#34A853"/><stop offset="1" stop-color="#0D9B6B"/></linearGradient></defs>
+        </svg>
+      </div>
+      <div class="onb-heading">AI-Powered Transcription</div>
+      <div class="onb-desc">Your recordings are instantly transcribed and enhanced by AI. Edit, search, and organize with ease.</div>
+    </div>
+  </div>
+  <!-- Page 3: Get Started -->
+  <div class="onb-page" data-page="2">
+    <div class="onb-page-content">
+      <div class="onb-illustration">
+        <svg viewBox="0 0 120 120" fill="none">
+          <circle cx="60" cy="60" r="50" fill="rgba(66,133,244,0.08)" />
+          <rect x="35" y="30" width="50" height="60" rx="10" fill="rgba(66,133,244,0.12)"/>
+          <rect x="42" y="45" width="36" height="4" rx="2" fill="#4285F4" opacity="0.5"/>
+          <rect x="42" y="53" width="28" height="4" rx="2" fill="#4285F4" opacity="0.7"/>
+          <rect x="42" y="61" width="32" height="4" rx="2" fill="#4285F4"/>
+          <circle cx="60" cy="78" r="6" fill="url(#onb-grad3)"/>
+          <path d="M57 78l2 2 4-4" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          <defs><linearGradient id="onb-grad3" x1="54" y1="72" x2="66" y2="84"><stop stop-color="#4285F4"/><stop offset="1" stop-color="#1A73E8"/></linearGradient></defs>
+        </svg>
+      </div>
+      <div class="onb-heading">Ready to Start</div>
+      <div class="onb-desc">Sign in to sync across devices, or continue as a guest. Your notes stay on your device.</div>
+    </div>
+    <div class="auth-buttons">
+      <div id="g_id_onload"
+        data-client_id="318168751322-jlsgiov3bm7tlnls9iko69igeb3tv8sm.apps.googleusercontent.com"
+        data-callback="handleGoogleCredential"
+        data-auto_prompt="false">
+      </div>
+      <button class="auth-btn auth-btn-google" onclick="triggerGoogleSignIn()">
+        <span class="spinner"></span>
+        <svg class="auth-icon" viewBox="0 0 24 24">
+          <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.01z" fill="#4285F4"/>
+          <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+          <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+          <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+        </svg>
+        <span class="auth-text">Continue with Google</span>
+      </button>
+      <button class="auth-btn auth-btn-guest" onclick="openNameModal()">
+        <svg class="auth-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+        </svg>
+        <span class="auth-text">Continue as Guest</span>
+      </button>
+    </div>
+  </div>
+</div>
+<!-- Onboarding navigation -->
+<div class="onb-nav">
+  <div class="onb-dots">
+    <div class="onb-dot active" data-dot="0"></div>
+    <div class="onb-dot" data-dot="1"></div>
+    <div class="onb-dot" data-dot="2"></div>
+  </div>
+  <button class="onb-next-btn" id="onb-next-btn" onclick="nextOnboardingPage()">
+    Next
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
   </button>
 </div>
-<div class="onb-bottom-line"></div>
 </div>
 <div id="screen-home" class="screen">
 <div class="home-top-row">
@@ -149,7 +186,7 @@
 <div class="rec-live-text" id="rec-live-text"><span class="rec-listening">Listening...</span></div>
 </div>
 <div class="rec-controls">
-<button class="rec-ctrl-btn" title="Edit" onclick="showToast('Edit invoked')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></button>
+<button class="rec-ctrl-btn" title="Edit" onclick="toggleLiveEdit()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></button>
 <button class="rec-pause-btn" id="rec-pause-btn" onclick="togglePause()">Pause</button>
 <button class="rec-ctrl-btn" onclick="finishRecording()" title="Done"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></button>
 </div>
@@ -328,35 +365,58 @@
 </button>
 <div class="settings-title">Settings</div>
 </div>
+<div class="settings-scroll">
 <div class="settings-section-title">Account</div>
 <div class="settings-section">
-<div class="settings-row" onclick="navigateTo('profile')">
-<div class="settings-icon" style="background: var(--system-blue);">
-<svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+<div class="settings-row" id="settings-profile-row">
+<div class="settings-avatar" id="settings-avatar"></div>
+<div class="settings-profile-info">
+<div class="settings-label" id="settings-profile-name">User</div>
+<div class="settings-value" id="settings-profile-email">Not signed in</div>
 </div>
-<div class="settings-label" id="settings-profile-name"></div>
-<div class="settings-value" id="settings-profile-email"></div>
 <div class="settings-chevron">›</div>
+</div>
+</div>
+<div class="settings-section-title">Preferences</div>
+<div class="settings-section">
+<div class="settings-row">
+<div class="settings-icon" style="background: var(--system-purple);">
+<svg viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+</div>
+<div class="settings-label">Dark Mode</div>
+<label class="ios-switch">
+<input type="checkbox" id="settings-dark-toggle" onchange="toggleThemeFromSettings(this.checked)">
+<span class="ios-switch-slider"></span>
+</label>
 </div>
 <div class="settings-row">
 <div class="settings-icon" style="background: var(--system-green);">
 <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
 </div>
-<div class="settings-label">iCloud Backup</div>
+<div class="settings-label">Auto Backup</div>
 <label class="ios-switch">
 <input type="checkbox" id="backup-toggle" checked onchange="toggleBackup(this.checked)">
 <span class="ios-switch-slider"></span>
 </label>
 </div>
 </div>
-<div class="settings-section-title">Data & Sync</div>
-<div class="settings-section" style="padding: 16px;">
-<button class="settings-btn primary" onclick="exportDatabase()">Export Backup (JSON)</button>
-<button class="settings-btn secondary" onclick="document.getElementById('db-import-input').click()">Import Backup</button>
-<input type="file" id="db-import-input" style="display:none" accept=".json" onchange="importDatabase(event)">
-</div>
-<div class="settings-section-title">Storage</div>
+<div class="settings-section-title">Data & Storage</div>
 <div class="settings-section">
+<div class="settings-row" onclick="exportDatabase()">
+<div class="settings-icon" style="background: var(--system-blue);">
+<svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+</div>
+<div class="settings-label">Export Backup</div>
+<div class="settings-chevron">›</div>
+</div>
+<div class="settings-row" onclick="document.getElementById('db-import-input').click()">
+<div class="settings-icon" style="background: var(--system-teal);">
+<svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+</div>
+<div class="settings-label">Import Backup</div>
+<div class="settings-chevron">›</div>
+</div>
+<input type="file" id="db-import-input" style="display:none" accept=".json" onchange="importDatabase(event)">
 <div class="storage-bar-container">
 <div class="storage-bar-bg">
 <div class="storage-bar-fill" id="storage-bar-fill"></div>
@@ -394,6 +454,7 @@
 <svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
 </div>
 <div class="settings-label">Sign Out</div>
+</div>
 </div>
 </div>
 </div>

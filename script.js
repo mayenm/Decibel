@@ -182,12 +182,6 @@ const state = {
   audioReactor: null,
   totalPausedDuration: 0,
   pausedAt: null,
-  currentPitch: 0,
-  lastSpeakerId: null,
-  speakerProfiles: [],
-  unpitchedDuration: 0,
-  musicDetected: false,
-  recentPitches: [],
   scrubTrail: [],
 };
 let pendingDeleteNoteId = null;
@@ -438,7 +432,7 @@ function goBack() {
 function navigateTo(screen) {
   closeProfileMenu();
   if (screen === "settings") showScreen("screen-settings");
-  else if (screen === "profile") showToast("Profile screen coming soon");
+  else if (screen === "profile") showScreen("screen-settings");
   else if (screen === "help") openHelp();
 }
 function handleLogout() {
@@ -597,14 +591,27 @@ function handleProfileClick() {
 function updateSettingsScreen() {
   const nameEl = document.getElementById("settings-profile-name");
   const emailEl = document.getElementById("settings-profile-email");
+  const avatarEl = document.getElementById("settings-avatar");
+  const darkToggle = document.getElementById("settings-dark-toggle");
   if (state.isUserSignedIn && state.userProfile.firstName) {
-    nameEl.textContent =
-      `${state.userProfile.firstName} ${state.userProfile.lastName}`.trim();
+    const fullName = `${state.userProfile.firstName} ${state.userProfile.lastName}`.trim();
+    nameEl.textContent = fullName;
     emailEl.textContent = state.userProfile.email || "";
+    if (avatarEl) {
+      const initials = getInitials(state.userProfile.firstName, state.userProfile.lastName);
+      const color = getColorFromName(fullName);
+      avatarEl.style.background = color;
+      avatarEl.textContent = initials;
+    }
   } else {
-    nameEl.textContent = "Guest User";
+    nameEl.textContent = state.userName || "Guest User";
     emailEl.textContent = "Not signed in";
+    if (avatarEl) {
+      const initials = state.userName ? state.userName.charAt(0).toUpperCase() : "G";
+      avatarEl.textContent = initials;
+    }
   }
+  if (darkToggle) darkToggle.checked = state.theme === "dark";
   const storageSize = getStorageSize();
   const storageText = document.getElementById("storage-text");
   const storageBar = document.getElementById("storage-bar-fill");
@@ -655,6 +662,55 @@ function saveName() {
   showScreen("screen-home");
   haptic([10, 50, 10]);
 }
+
+/* ── Onboarding 3-Page Navigation ─────────────────────────── */
+let _onbPage = 0;
+function nextOnboardingPage() {
+  const pages = document.querySelectorAll(".onb-page");
+  const dots = document.querySelectorAll(".onb-dot");
+  const nextBtn = document.getElementById("onb-next-btn");
+  const totalPages = pages.length;
+
+  if (_onbPage >= totalPages - 1) return;
+
+  // Exit current page
+  pages[_onbPage].classList.remove("active");
+  pages[_onbPage].classList.add("exit-left");
+  dots[_onbPage].classList.remove("active");
+
+  // Enter next page
+  _onbPage++;
+  pages[_onbPage].classList.remove("exit-left");
+  pages[_onbPage].classList.add("active");
+  dots[_onbPage].classList.add("active");
+
+  // Update button text on last page
+  if (_onbPage === totalPages - 1) {
+    nextBtn.style.display = "none";
+  }
+
+  haptic(10);
+}
+
+/* ── Live Edit Toggle (Recording Screen) ──────────────────── */
+function toggleLiveEdit() {
+  const textEl = document.getElementById("rec-live-text");
+  if (!textEl) return;
+  if (textEl.contentEditable === "true") {
+    textEl.contentEditable = "false";
+    textEl.style.border = "none";
+    showToast("Edit mode off");
+  } else {
+    textEl.contentEditable = "true";
+    textEl.style.border = "1px solid var(--accent)";
+    textEl.style.borderRadius = "8px";
+    textEl.style.padding = "8px";
+    textEl.focus();
+    showToast("Edit mode on — tap text to edit");
+  }
+  haptic(10);
+}
+
 const QUESTIONS = [
   "What are you pondering?",
   "What's on your mind?",
@@ -771,9 +827,6 @@ function createTile(note, delay = 0) {
   tile.style.animationDelay = delay + "s";
   const body = note.editedBody || note.originalTranscription || "";
   const cleanBody = body
-    .replace(/\[MALE_\d+\]/g, "")
-    .replace(/\[FEMALE_\d+\]/g, " ")
-    .replace(/\[MUSIC\]/g, "")
     .trim();
   const wordCount = cleanBody ? cleanBody.split(/\s+/).length : 0;
   const date = new Date(note.createdAt);
@@ -1201,9 +1254,6 @@ function detectSilenceLoop() {
   const bufferLength = state.analyser.frequencyBinCount;
   const dataArray = new Uint8Array(bufferLength);
   state.analyser.getByteFrequencyData(dataArray);
-  const timeArray = new Uint8Array(state.analyser.fftSize);
-  state.analyser.getByteTimeDomainData(timeArray);
-  const pitch = autoCorrelate(timeArray, state.audioContext.sampleRate);
   let maxVal = 0;
   for (let i = 0; i < bufferLength; i++)
     if (dataArray[i] > maxVal) maxVal = dataArray[i];
@@ -1217,7 +1267,7 @@ function detectSilenceLoop() {
         document.getElementById("screen-recording").classList.add("is-silent");
       }, 800);
     }
-    state.unpitchedDuration = 0;
+
   } else {
     if (state.silenceTimer) {
       clearTimeout(state.silenceTimer);
@@ -1229,115 +1279,11 @@ function detectSilenceLoop() {
       document.getElementById("recording-canvas").style.display = "block";
       document.getElementById("screen-recording").classList.remove("is-silent");
     }
-    if (pitch > 50 && pitch < 500) {
-      state.currentPitch = pitch;
-      state.recentPitches.push(pitch);
-      if (state.recentPitches.length > 60) state.recentPitches.shift();
-    }
-    let activeBins = 0;
-    for (let i = 0; i < bufferLength; i++) {
-      if (dataArray[i] > 30) activeBins++;
-    }
-    const spectralSpread = activeBins / bufferLength;
-    let sumLog = 0,
-      sumLinear = 0;
-    let validBins = 0;
-    for (let i = 1; i < bufferLength; i++) {
-      if (dataArray[i] > 0) {
-        sumLog += Math.log(dataArray[i]);
-        sumLinear += dataArray[i];
-        validBins++;
-      }
-    }
-    const geometricMean = validBins > 0 ? Math.exp(sumLog / validBins) : 0;
-    const arithmeticMean = validBins > 0 ? sumLinear / validBins : 1;
-    const spectralFlatness =
-      arithmeticMean > 0 ? geometricMean / arithmeticMean : 0;
-    const looksLikeMusic =
-      spectralSpread > 0.25 && spectralFlatness > 0.08 && maxVal > 40;
-    if (looksLikeMusic) {
-      state.unpitchedDuration += 1 / 60;
-      if (state.unpitchedDuration > 1.2 && !state.musicDetected) {
-        state.musicDetected = true;
-        if (state.recognition) {
-          try {
-            state.recognition.stop();
-          } catch (e) {}
-        }
-        state.finalTranscript += "\n[MUSIC]\n";
-        updateLiveTranscript();
-      }
-    } else {
-      state.unpitchedDuration = Math.max(0, state.unpitchedDuration - 1 / 30);
-      if (state.unpitchedDuration < 0.3 && state.musicDetected) {
-        state.musicDetected = false;
-        state.recentPitches = [];
-        if (state.isRecording && !state.isPaused && state.recognition) {
-          try {
-            state.recognition.start();
-          } catch (e) {}
-        }
-      }
-    }
+
   }
   state.waveformData.push(maxVal / 255);
   if (state.waveformData.length > 500) state.waveformData.shift();
   state.animationFrameId = requestAnimationFrame(detectSilenceLoop);
-}
-function autoCorrelate(buf, sampleRate) {
-  let SIZE = buf.length;
-  let rms = 0;
-  for (let i = 0; i < SIZE; i++) {
-    let val = (buf[i] - 128) / 128;
-    rms += val * val;
-  }
-  rms = Math.sqrt(rms / SIZE);
-  if (rms < 0.01) return -1;
-  let r1 = 0,
-    r2 = SIZE - 1,
-    thres = 0.2;
-  for (let i = 0; i < SIZE / 2; i++)
-    if (Math.abs((buf[i] - 128) / 128) < thres) {
-      r1 = i;
-      break;
-    }
-  for (let i = 1; i < SIZE / 2; i++)
-    if (Math.abs((buf[SIZE - i] - 128) / 128) < thres) {
-      r2 = SIZE - i;
-      break;
-    }
-  let newBuf = [];
-  for (let i = r1; i <= r2; i++) newBuf.push(buf[i]);
-  buf = newBuf;
-  SIZE = buf.length;
-  if (SIZE < 2) return -1;
-  let c = new Array(SIZE).fill(0);
-  for (let i = 0; i < SIZE; i++)
-    for (let j = 0; j < SIZE - i; j++)
-      c[i] = c[i] + (buf[j] - 128) * (buf[j + i] - 128);
-  let d = 0;
-  while (d < SIZE - 1 && c[d] > c[d + 1]) d++;
-  let maxval = -1,
-    maxpos = -1;
-  for (let i = d; i < SIZE; i++) {
-    if (c[i] > maxval) {
-      maxval = c[i];
-      maxpos = i;
-    }
-  }
-  let T0 = maxpos;
-  if (T0 <= 0 || T0 >= SIZE - 1) return -1;
-  let T0_corrected = T0;
-  if (T0 * 2 < SIZE) {
-    if (c[T0 * 2] > 0.8 * maxval) T0_corrected = T0 * 2;
-  }
-  let x1 = T0_corrected - 1 >= 0 ? c[T0_corrected - 1] : 0;
-  let x2 = c[T0_corrected];
-  let x3 = T0_corrected + 1 < SIZE ? c[T0_corrected + 1] : 0;
-  let a = (x1 + x3 - 2 * x2) / 2;
-  let b = (x3 - x1) / 2;
-  if (a) T0_corrected = T0_corrected - b / (2 * a);
-  return sampleRate / T0_corrected;
 }
 async function startRecording() {
   if (!state.permissionsGranted) {
@@ -1355,12 +1301,6 @@ async function startRecording() {
   state.lastSentenceEnd = 0;
   state.totalPausedDuration = 0;
   state.pausedAt = null;
-  state.currentPitch = 0;
-  state.lastSpeakerId = null;
-  state.speakerProfiles = [];
-  state.unpitchedDuration = 0;
-  state.musicDetected = false;
-  state.recentPitches = [];
   document.getElementById("rec-timer").textContent = "00:00";
   document.getElementById("rec-silence").classList.remove("active");
   document.getElementById("rec-live-text").innerHTML =
@@ -1435,18 +1375,6 @@ function updateLiveTranscript() {
     return;
   }
   let safeFinal = escapeHtml(state.finalTranscript);
-  safeFinal = safeFinal.replace(
-    /[MUSIC]/g,
-    '<span class="transcript-pill music-pill">Music playing</span>',
-  );
-  safeFinal = safeFinal.replace(
-    /\[MALE_(\d+)\]/g,
-    '<span class="transcript-pill male-pill">MALE $1</span>',
-  );
-  safeFinal = safeFinal.replace(
-    /\[FEMALE_(\d+)\]/g,
-    '<span class="transcript-pill female-pill">FEMALE $1</span>',
-  );
   safeFinal = safeFinal.replace(/\n/g, "<br>");
   const safeInterim = escapeHtml(state.interimTranscript);
   el.innerHTML = `<span class="rec-final">${safeFinal}</span> <span class="rec-interim">${safeInterim}</span>`;
@@ -1541,54 +1469,26 @@ function initSpeechRecognition() {
     let finalAdd = "";
     for (let i = event.resultIndex; i < event.results.length; i++) {
       const result = event.results[i];
-      const transcript = result[0].transcript;
+      /* ── Pick best alternative by confidence ─── */
+      let bestIdx = 0;
+      let bestConf = result[0].confidence || 0;
+      for (let a = 1; a < result.length; a++) {
+        if ((result[a].confidence || 0) > bestConf) {
+          bestConf = result[a].confidence;
+          bestIdx = a;
+        }
+      }
+      const transcript = result[bestIdx].transcript;
       if (result.isFinal) {
+        /* Skip very low confidence results */
+        if (bestConf > 0 && bestConf < 0.3) continue;
         const elapsed = getRecordingElapsedTime();
         const { formatted, sentenceEnded } = formatTranscriptChunk(
           transcript,
           elapsed,
         );
-        let medianPitch = 0;
-        if (
-          state.recentPitches &&
-          state.recentPitches.length > 5 &&
-          !state.musicDetected
-        ) {
-          const sorted = [...state.recentPitches].sort((a, b) => a - b);
-          medianPitch = sorted[Math.floor(sorted.length / 2)];
-        }
-        if (medianPitch >= 60 && medianPitch <= 400) {
-          if (!state.speakerProfiles) state.speakerProfiles = [];
-          let matchedSpeaker = null;
-          let minDiff = Infinity;
-          for (let sp of state.speakerProfiles) {
-            const diff = Math.abs(sp.avgPitch - medianPitch);
-            if (diff < minDiff && diff < 60) {
-              minDiff = diff;
-              matchedSpeaker = sp;
-            }
-          }
-          if (!matchedSpeaker) {
-            let gender = medianPitch < 170 ? "Male" : "Female";
-            matchedSpeaker = {
-              gender: gender,
-              avgPitch: medianPitch,
-              id:
-                state.speakerProfiles.filter((s) => s.gender === gender)
-                  .length + 1,
-            };
-            state.speakerProfiles.push(matchedSpeaker);
-          } else {
-            matchedSpeaker.avgPitch =
-              matchedSpeaker.avgPitch * 0.8 + medianPitch * 0.2;
-          }
-          if (state.lastSpeakerId !== matchedSpeaker.id) {
-            const token = `[${matchedSpeaker.gender.toUpperCase()}_${matchedSpeaker.id}]`;
-            finalAdd += "\n" + token + "\n";
-            state.lastSpeakerId = matchedSpeaker.id;
-          }
-        }
         if (formatted) {
+
           const needsSpace =
             state.finalTranscript.length > 0 &&
             !state.finalTranscript.endsWith(" ") &&
@@ -1738,11 +1638,43 @@ function formatTranscriptChunk(rawText, elapsedTime) {
     ive: "I've",
     ill: "I'll",
     id: "I'd",
+    youre: "you're",
+    youve: "you've",
+    youd: "you'd",
+    youll: "you'll",
+    theyre: "they're",
+    theyve: "they've",
+    theyd: "they'd",
+    theyll: "they'll",
+    weve: "we've",
+    were: "we're",
+    wed: "we'd",
+    well: "we'll",
+    hes: "he's",
+    shes: "she's",
+    its: "it's",
+    thats: "that's",
+    theres: "there's",
+    heres: "here's",
+    whats: "what's",
+    whos: "who's",
+    lets: "let's",
+    mustnt: "mustn't",
+    mightnt: "mightn't",
+    neednt: "needn't",
+    oughtnt: "oughtn't",
   };
   text = text.replace(
-    /\b(dont|cant|wont|shouldnt|wouldnt|couldnt|isnt|arent|wasnt|werent|hasnt|havent|hadnt|doesnt|didnt|im|ive|ill|id)\b/gi,
+    /\b(dont|cant|wont|shouldnt|wouldnt|couldnt|isnt|arent|wasnt|werent|hasnt|havent|hadnt|doesnt|didnt|im|ive|ill|id|youre|youve|youd|youll|theyre|theyve|theyd|theyll|weve|were|wed|well|hes|shes|its|thats|theres|heres|whats|whos|lets|mustnt|mightnt|neednt|oughtnt)\b/gi,
     (match) => contractions[match.toLowerCase()] || match,
   );
+  /* ── Question detection ─── */
+  const questionStarters = /^(what|where|when|why|who|whom|whose|which|how|do|does|did|is|are|was|were|can|could|would|should|shall|will|have|has|had|may|might)\b/i;
+  if (questionStarters.test(text) && !/[.!?]$/.test(text)) {
+    text += "?";
+    sentenceEnded = true;
+    state.lastSentenceEnd = elapsedTime;
+  }
   const commonNames =
     /\b(john|jane|mike|sarah|david|emma|james|mary|robert|linda|william|elizabeth|richard|jennifer|charles|susan|joseph|margaret|thomas|dorothy|alex|chris|jessica|dan|sam|tom|anna|maria|jose|luis|carlos|juan|wei|yuki|hiroshi|fatima|ahmed|omar|ali|zainab|ishaan|priya|arjun|aisha|kwame|nia|malik|jamal|latoya|deandre|siobhan|liam|noah|olivia|ava|sophia|mason|isabella|lucas|mia|ethan|amelia|logan|harper|aiden|evelyn|elijah|abigail|jackson|emily|sebastian|ella)\b/gi;
   text = text.replace(
@@ -1773,9 +1705,6 @@ async function setupReviewScreen() {
     state.interimTranscript
   ).trim();
   const cleanTranscript = combinedTranscript
-    .replace(/\[MALE_\d+\]/g, "")
-    .replace(/\[FEMALE_\d+\]/g, "")
-    .replace(/\[MUSIC\]/g, "")
     .replace(/\n/g, " ")
     .trim();
   const words = cleanTranscript.split(/\s+/).slice(0, 5).join(" ");
@@ -2130,9 +2059,6 @@ async function openNoteDetail(id) {
   document.getElementById("det-date").textContent = dateStr;
   const text = note.editedBody || note.originalTranscription || "";
   const cleanText = text
-    .replace(/\[MALE_\d+\]/g, "")
-    .replace(/\[FEMALE_\d+\]/g, "")
-    .replace(/\[MUSIC\]/g, "")
     .trim();
   const words = cleanText ? cleanText.split(/\s+/).length : 0;
   document.getElementById("det-word-count").textContent = `${words} Words`;
@@ -2215,10 +2141,7 @@ function buildOriginalWordTimings(note) {
   const duration = getDetailDuration(note);
   if (!duration || duration <= 0) return [];
   const text = note.originalTranscription || "";
-  const cleanText = text
-    .replace(/\[MALE_\d+\]/g, "")
-    .replace(/\[FEMALE_\d+\]/g, "")
-    .replace(/\[MUSIC\]/g, "");
+  const cleanText = text;
   const tokens = cleanText.split(/(\s+)/);
   const words = tokens.filter((t) => /\S/.test(t));
   if (words.length === 0) {
@@ -2263,14 +2186,8 @@ function buildOriginalWordTimings(note) {
 }
 
 function getEditedWordTimings(note) {
-  const originalText = (note.originalTranscription || "")
-    .replace(/\[MALE_\d+\]/g, "")
-    .replace(/\[FEMALE_\d+\]/g, "")
-    .replace(/\[MUSIC\]/g, "");
-  const editedText = (note.editedBody || note.originalTranscription || "")
-    .replace(/\[MALE_\d+\]/g, "")
-    .replace(/\[FEMALE_\d+\]/g, "")
-    .replace(/\[MUSIC\]/g, "");
+  const originalText = (note.originalTranscription || "");
+  const editedText = (note.editedBody || note.originalTranscription || "");
 
   let origTimings = note.wordTimings;
   if (!origTimings || origTimings.length === 0) {
@@ -2410,14 +2327,7 @@ function getRawTextFromDOM(el) {
   el.childNodes.forEach((node, index) => {
     if (node.nodeType === Node.TEXT_NODE) raw += node.textContent;
     else if (node.nodeType === Node.ELEMENT_NODE) {
-      if (node.classList.contains("male-pill")) {
-        const match = node.textContent.match(/MALE\s*(\d+)/i);
-        raw += `[MALE_${match ? match[1] : "1"}]`;
-      } else if (node.classList.contains("female-pill")) {
-        const match = node.textContent.match(/FEMALE\s*(\d+)/i);
-        raw += `[FEMALE_${match ? match[1] : "1"}]`;
-      } else if (node.classList.contains("music-pill")) raw += `[MUSIC]`;
-      else if (node.tagName === "BR") raw += "\n";
+      if (node.tagName === "BR") raw += "\n";
       else if (node.tagName === "DIV" || node.tagName === "P") {
         if (index > 0 || raw.length > 0) raw += "\n";
         raw += getRawTextFromDOM(node);
@@ -2430,9 +2340,6 @@ function handleEditInput() {
   const container = document.getElementById("det-editable-text");
   const rawText = getRawTextFromDOM(container);
   const cleanText = rawText
-    .replace(/\[MALE_\d+\]/g, "")
-    .replace(/\[FEMALE_\d+\]/g, "")
-    .replace(/\[MUSIC\]/g, "")
     .replace(/\n/g, " ");
   const words = cleanText.trim() ? cleanText.trim().split(/\s+/).length : 0;
   document.getElementById("det-word-count").textContent = `${words} Words`;
@@ -2718,9 +2625,6 @@ function exportNoteAsMarkdown() {
   const title = note.title || "Untitled Note";
   let body = getRawTextFromDOM(document.getElementById("det-editable-text"));
   body = body
-    .replace(/[MUSIC]/g, " [Music Playing] ")
-    .replace(/\[MALE_(\d+)\]/g, " [Male Speaker $1] ")
-    .replace(/\[FEMALE_(\d+)\]/g, " [Female Speaker $1] ")
     .replace(/\n/g, "\n\n");
   const tags = (note.tags || []).map((t) => `#${t}`).join(" ");
   const mdContent = `# ${title}\n\n*${date}*\n${tags ? "\n" + tags + "\n" : ""}\n---\n\n${body}`;
@@ -2866,20 +2770,45 @@ window.ctxExport = function () {
 };
 window.ctxTranslate = function () {
   ensureSelection();
+  const sel = window.getSelection().toString().trim();
   hideDetContextMenu();
-  showToast("Translate invoked");
+  if (!sel) { showToast("Select text to translate"); return; }
+  showToast("Translating...");
+  const targetLang = navigator.language.startsWith("en") ? "es" : "en";
+  fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(sel)}&langpair=en|${targetLang}`)
+    .then(r => r.json())
+    .then(data => {
+      if (data.responseData && data.responseData.translatedText) {
+        showToast(`${targetLang.toUpperCase()}: ${data.responseData.translatedText}`);
+      } else {
+        showToast("Translation unavailable");
+      }
+    })
+    .catch(() => showToast("Translation failed — check connection"));
   haptic(10);
 };
 window.ctxDictionary = function () {
   ensureSelection();
+  const sel = window.getSelection().toString().trim().split(/\s+/)[0];
   hideDetContextMenu();
-  showToast("Dictionary opened");
+  if (!sel) { showToast("Select a word"); return; }
+  window.open(`https://en.wiktionary.org/wiki/${encodeURIComponent(sel.toLowerCase())}`, "_blank");
   haptic(10);
 };
 window.ctxShare = function () {
   ensureSelection();
+  const sel = window.getSelection().toString().trim();
   hideDetContextMenu();
-  showToast("Share sheet opened");
+  const shareText = sel || (state.currentNote ? state.currentNote.title + "\n" + (state.currentNote.text || "") : "");
+  if (navigator.share) {
+    navigator.share({ title: "Decibel Note", text: shareText })
+      .then(() => showToast("Shared!"))
+      .catch(() => {});
+  } else {
+    navigator.clipboard.writeText(shareText)
+      .then(() => showToast("Copied to clipboard"))
+      .catch(() => showToast("Share not available"));
+  }
   haptic(10);
 };
 window.ctxBackToMain = function () {
@@ -3834,165 +3763,7 @@ async function fetchTimingsFromProxy(note) {
   }
 }
 
-/**
- * TIER 2: Use the browser's Web Speech API to recognize speech from
- * the audio and capture timestamps. Plays the audio at 4x speed
- * through a hidden path while SpeechRecognition listens. The recognized
- * result timestamps are mapped to the known transcript sentences.
- *
- * Returns sentenceTimings or null.
- */
-async function alignViaSpeechRecognition(note) {
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SpeechRecognition) return null;
-  if (!note.audioFileURL) return null;
 
-  const text = (note.editedBody || note.originalTranscription || "").trim();
-  if (!text) return null;
-
-  // Split text into sentences
-  let sentences = text.split(/(?<=[.!?])\s+/).filter(s => s.trim());
-  if (sentences.length <= 1) sentences = text.split(/\n+/).filter(s => s.trim());
-  if (sentences.length <= 1) return null; // nothing to align
-
-  return new Promise((resolve) => {
-    const recognition = new SpeechRecognition();
-    recognition.continuous = true;
-    recognition.interimResults = false;
-    recognition.lang = "en-US";
-    recognition.maxAlternatives = 1;
-
-    const resultTimestamps = []; // {time, transcript}
-    const startedAt = Date.now();
-
-    // Create a hidden audio element to play the recording
-    const hiddenAudio = new Audio(note.audioFileURL);
-    hiddenAudio.volume = 0.01; // near-silent so speech recognition can still hear via system audio
-    hiddenAudio.playbackRate = 1.0; // must be 1x for speech recognition to work
-
-    let timeout;
-
-    recognition.onresult = (event) => {
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        if (event.results[i].isFinal) {
-          const elapsed = (Date.now() - startedAt) / 1000;
-          resultTimestamps.push({
-            time: elapsed,
-            transcript: event.results[i][0].transcript.trim()
-          });
-        }
-      }
-    };
-
-    recognition.onend = () => {
-      cleanup();
-    };
-
-    recognition.onerror = () => {
-      cleanup();
-    };
-
-    hiddenAudio.onended = () => {
-      // Give speech recognition a moment to finish processing
-      setTimeout(() => {
-        recognition.stop();
-      }, 500);
-    };
-
-    function cleanup() {
-      clearTimeout(timeout);
-      hiddenAudio.pause();
-      hiddenAudio.src = "";
-
-      if (resultTimestamps.length === 0) {
-        resolve(null);
-        return;
-      }
-
-      // Map recognition results to sentences using word overlap
-      const dur = getDetailDuration(note);
-      const timings = mapRecognitionToSentences(sentences, resultTimestamps, dur);
-      resolve(timings);
-    }
-
-    // Timeout: if audio is longer than 60s, abort
-    const maxDur = (note.duration || 30) + 5;
-    timeout = setTimeout(() => {
-      recognition.stop();
-      hiddenAudio.pause();
-    }, maxDur * 1000);
-
-    // Start listening, then play audio
-    try {
-      recognition.start();
-      hiddenAudio.play().catch(() => {
-        recognition.stop();
-        resolve(null);
-      });
-    } catch (e) {
-      resolve(null);
-    }
-  });
-}
-
-/**
- * Maps speech recognition results to known transcript sentences
- * using word overlap matching.
- */
-function mapRecognitionToSentences(sentences, results, totalDur) {
-  if (results.length === 0) return null;
-
-  // Build a timeline of recognized text with timestamps
-  const timings = [];
-  let sentIdx = 0;
-
-  // For each sentence, find the recognition result that best matches
-  const sentenceWords = sentences.map(s =>
-    s.toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter(w => w)
-  );
-
-  // Accumulate recognition results and match against sentences
-  let recognizedSoFar = "";
-  let lastMatchTime = 0;
-
-  for (const result of results) {
-    recognizedSoFar += " " + result.transcript;
-    const recWords = recognizedSoFar.toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter(w => w);
-
-    // Count how many sentence words we've covered
-    let wordsMatched = 0;
-    for (let si = 0; si <= sentIdx && si < sentenceWords.length; si++) {
-      wordsMatched += sentenceWords[si].length;
-    }
-
-    // If we've recognized enough words to cover the current sentence
-    if (recWords.length >= wordsMatched && sentIdx < sentences.length) {
-      timings.push({
-        start: lastMatchTime,
-        end: result.time,
-        text: sentences[sentIdx].trim()
-      });
-      lastMatchTime = result.time;
-      sentIdx++;
-    }
-  }
-
-  // Handle remaining sentences
-  while (sentIdx < sentences.length) {
-    const remainingCount = sentences.length - sentIdx;
-    const remainingDur = totalDur - lastMatchTime;
-    const perSent = remainingDur / remainingCount;
-    timings.push({
-      start: lastMatchTime,
-      end: lastMatchTime + perSent,
-      text: sentences[sentIdx].trim()
-    });
-    lastMatchTime += perSent;
-    sentIdx++;
-  }
-
-  return timings.length > 0 ? timings : null;
-}
 
 /**
  * TIER 3: Offline fallback – distribute sentence timings based on
@@ -4001,8 +3772,7 @@ function mapRecognitionToSentences(sentences, results, totalDur) {
 function computeCharWeightedTimings(note) {
   const dur = getDetailDuration(note);
   const text = (note.editedBody || note.originalTranscription || "")
-    .replace(/\[MALE_\d+\]/g, "").replace(/\[FEMALE_\d+\]/g, "")
-    .replace(/\[MUSIC\]/g, "").trim();
+    .trim();
   if (!text) return [];
 
   let sentences = text.split(/(?<=[.!?])\s+/).filter(s => s.trim());
@@ -4089,8 +3859,7 @@ function buildSentenceMap(note) {
   //    (This path is only hit before async audio analysis completes)
   const dur  = getDetailDuration(note);
   const text = (note.editedBody || note.originalTranscription || "")
-    .replace(/\[MALE_\d+\]/g, "").replace(/\[FEMALE_\d+\]/g, "")
-    .replace(/\[MUSIC\]/g, "").trim();
+    .trim();
   
   if (!text) return [];
   const words = text.split(/\s+/);
@@ -4380,28 +4149,12 @@ async function startKaraokeMode(note) {
 
   const needsTimings = (!hasWordTimings && !(hasSentTimings && !isStale)) && note.audioFileURL;
   if (needsTimings) {
-    // INSTANT: Use character-weighted distribution NOW (no waiting)
+    // Use character-weighted distribution (instant, no API calls)
     const fallback = computeCharWeightedTimings(note);
     if (fallback.length > 0) {
       note.sentenceTimings = fallback;
       note._timingVersion = TIMING_VERSION;
     }
-
-    // BACKGROUND: Try to get real Whisper timestamps from the proxy
-    // (will work after the worker is updated to return them).
-    // Results are saved for the NEXT playback — no re-render mid-play.
-    fetchTimingsFromProxy(note).then(proxyResult => {
-      if (proxyResult) {
-        if (proxyResult.wordTimings.length > 0) {
-          note.wordTimings = proxyResult.wordTimings;
-        }
-        if (proxyResult.sentenceTimings.length > 0) {
-          note.sentenceTimings = proxyResult.sentenceTimings;
-        }
-        note._timingVersion = TIMING_VERSION + 1; // mark as having real data
-        saveState();
-      }
-    }).catch(() => {}); // silently ignore failures
   }
 
   _kSentences = buildSentenceMap(note);
@@ -4458,14 +4211,6 @@ function stopKaraokeMode() {
 async function init() {
   await loadState();
   applyTheme(state.theme, true);
-  const onbWave = document.getElementById("onb-waveform");
-  for (let i = 0; i < 50; i++) {
-    const bar = document.createElement("div");
-    bar.className = "bar";
-    bar.style.height = Math.random() * 60 + 10 + "px";
-    bar.style.animationDelay = Math.random() * 2 + "s";
-    onbWave.appendChild(bar);
-  }
   initSpeechRecognition();
   setupAddButton();
   initScrubbing();
@@ -4600,7 +4345,7 @@ async function init() {
     setTimeout(() => {
       splash.style.opacity = "0";
       setTimeout(() => splash.remove(), 600);
-    }, 1200);
+    }, 2000);
   }
   if (state.backupEnabled) scheduleBackup();
   document.addEventListener("contextmenu", (e) => {
